@@ -10,7 +10,7 @@ Python 3.12+:
 pip install capito
 ```
 
-In a project, pin the version, for example `capito==0.1.1` in `requirements.lock`.
+In a project, pin the version, for example `capito==0.1.2` in `requirements.lock`.
 
 ## Documentation
 

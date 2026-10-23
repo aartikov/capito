@@ -33,10 +33,12 @@ def test_interface_is_a_configuration_error_on_windows(tmp_path, monkeypatch):
         config(tmp_path, schema(tmp_path), interface='en0')
 
 
-def test_unknown_interface_is_a_failed_result_not_an_exception(tmp_path):
-    # The socket option is computed before any connection, so no network is involved.
-    response = HttpxTransport(config(tmp_path, schema(tmp_path), interface='no-such-interface-0')).send(Request('GET', 'http://api.test/x', {}))
-    assert response.status == 0 and response.error
+@pytest.mark.respx(assert_all_called=False)  # on macOS the request never reaches the transport
+def test_unknown_interface_is_a_failed_result_not_an_exception(loopback_config, server):
+    # A live server, so only the interface can fail: macOS rejects the name before connecting, Linux when binding the socket.
+    url, received = server
+    response = HttpxTransport(replace(loopback_config, interface='nosuchif0')).send(Request('GET', url + '/x', {}))
+    assert response.status == 0 and response.error and not received
 
 
 @pytest.mark.parametrize('body,media,expected', [
