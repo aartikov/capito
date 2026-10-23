@@ -8,6 +8,8 @@ import time
 import uuid
 from urllib.parse import quote, urlencode
 
+import httpcore
+from httpcore._backends.sync import SyncStream  # not exported; the stream over an already connected socket
 import httpx
 
 from .files import File
@@ -46,6 +48,38 @@ def interface_options(name):
     raise OSError(f'interface is not supported on {sys.platform}')
 
 
+class BoundBackend(httpcore.SyncBackend):
+    """Connects through one interface. httpcore applies socket_options only after connecting, when the route
+    is already chosen, so the options are set here before connect. The options are IPv4-level: IPv4 addresses only."""
+    def __init__(self, options):
+        self.options = options
+
+    def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        try:
+            sock = self._connect(host, port, timeout)
+        except socket.timeout as exc:
+            raise httpcore.ConnectTimeout(exc) from exc
+        except OSError as exc:
+            raise httpcore.ConnectError(exc) from exc
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        return SyncStream(sock)
+
+    def _connect(self, host, port, timeout):
+        error = None
+        for family, kind, proto, _, address in socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM):
+            sock = socket.socket(family, kind, proto)
+            try:
+                for option in self.options:
+                    sock.setsockopt(*option)
+                sock.settimeout(timeout)
+                sock.connect(address)
+                return sock
+            except OSError as exc:
+                sock.close()
+                error = exc
+        raise error
+
+
 class HttpxTransport:
     """One connection pool per client; no proxies, certificates or .netrc from the environment, no redirects."""
     def __init__(self, config):
@@ -56,12 +90,12 @@ class HttpxTransport:
     def _http(self):
         with self._guard:
             if self._client is None:
-                bound = {}
+                transport = httpx.HTTPTransport(retries=0, trust_env=False)
                 if self.config.interface:
-                    # The option is IPv4-level, so the socket must be IPv4 too.
-                    bound = dict(local_address='0.0.0.0', socket_options=interface_options(self.config.interface))
+                    # httpx takes no network backend, so it goes into the pool httpx built.
+                    transport._pool._network_backend = BoundBackend(interface_options(self.config.interface))
                 self._client = httpx.Client(
-                    transport=httpx.HTTPTransport(retries=0, trust_env=False, **bound), trust_env=False,
+                    transport=transport, trust_env=False,
                     follow_redirects=False, timeout=httpx.Timeout(self.config.timeout, connect=self.config.connect_timeout))
             return self._client
 

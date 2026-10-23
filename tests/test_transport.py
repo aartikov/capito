@@ -41,6 +41,31 @@ def test_unknown_interface_is_a_failed_result_not_an_exception(loopback_config, 
     assert response.status == 0 and response.error and not received
 
 
+@pytest.mark.skipif(sys.platform not in ('darwin', 'linux'), reason='interface binding is macOS and Linux only')
+def test_interface_option_is_set_before_connecting(loopback_config, server, monkeypatch):
+    # The route is chosen at connect: an option set on a connected socket would not change the interface.
+    import socket
+    loopback = 'lo0' if sys.platform == 'darwin' else 'lo'
+    binding = interface_options(loopback)[0][:2]
+    events = []
+
+    class Recording(socket.socket):
+        def setsockopt(self, level, name, *value):
+            events.append(('option', (level, name)))
+            return super().setsockopt(level, name, *value)
+
+        def connect(self, address):
+            events.append(('connect', address))
+            return super().connect(address)
+
+    monkeypatch.setattr(socket, 'socket', Recording)
+    url, _ = server
+    response = HttpxTransport(replace(loopback_config, interface=loopback)).send(Request('GET', url + '/binary', {}))
+    assert response.status == 200
+    connect = next(i for i, (kind, _) in enumerate(events) if kind == 'connect')
+    assert ('option', binding) in events[:connect]
+
+
 @pytest.mark.parametrize('body,media,expected', [
     ({'id': 1}, None, b'{"id": 1}'),
     ({'id': [1, 2]}, 'application/x-www-form-urlencoded', b'id=1&id=2'),
