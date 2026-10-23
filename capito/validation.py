@@ -1,0 +1,123 @@
+"""Adapters to openapi-core; no endpoint-specific validation or schema rewriting."""
+import re
+from types import SimpleNamespace
+from urllib.parse import urlsplit, parse_qsl, urljoin
+from http.cookies import SimpleCookie
+from openapi_core import OpenAPI, Config
+from openapi_core.datatypes import RequestParameters
+from werkzeug.datastructures import Headers, MultiDict
+
+from .transport import first
+
+
+
+def outcome(status, errors=None, reason=None):
+    result = {'status': status, 'errors': errors or []}
+    if reason:
+        result['reason'] = reason
+    return result
+
+
+def issue(error):
+    """Schema path and rule; for unexpected or absent fields, their names (never their values)."""
+    found = {'path': list(error.absolute_path), 'rule': error.validator, 'expected': error.validator_value}
+    instance, schema = error.instance, error.schema if isinstance(error.schema, dict) else {}
+    if error.validator == 'additionalProperties' and isinstance(instance, dict):
+        declared, patterns = schema.get('properties', {}), schema.get('patternProperties', {})
+        found['extra'] = [k for k in instance if k not in declared and not any(re.search(p, k) for p in patterns)]
+    elif error.validator == 'required' and isinstance(instance, dict) and isinstance(error.validator_value, list):
+        found['missing'] = [k for k in error.validator_value if k not in instance]
+    return found
+
+
+def error_details(error):
+    # Library exception strings can embed an entire image or response. Keep useful
+    # schema paths/rules without duplicating payloads in the validation report.
+    cause = error
+    while cause is not None:
+        schema_errors = getattr(cause, 'schema_errors', None)
+        if schema_errors:
+            return {'type': type(error).__name__, 'issues': [issue(e) for e in schema_errors]}
+        cause = cause.__cause__
+    return {'type': type(error).__name__, 'message': str(error)[:500]}
+
+
+def request_adapter(request, route):
+    url = urlsplit(request.url)
+    cookies = SimpleCookie()
+    cookies.load(next((v for k, v in request.headers.items() if k.lower() == 'cookie'), ''))
+    return SimpleNamespace(
+        host_url=f'{url.scheme}://{url.netloc}', path=url.path,
+        full_url_pattern=f'{url.scheme}://{url.netloc}{route}', method=request.method.lower(),
+        parameters=RequestParameters(query=MultiDict(parse_qsl(url.query, keep_blank_values=True)),
+                                     header=Headers(request.headers), cookie=MultiDict((k, v.value) for k, v in cookies.items())),
+        content_type=(request.content_type or '').lower(), body=request.body)
+
+
+def response_adapter(response):
+    return SimpleNamespace(status_code=response.status, headers=Headers(response.headers),
+                           content_type=(first(response.headers.get('content-type')) or '').lower(),
+                           data=response.content or None)
+
+
+class Validator:
+    """Checks requests and responses against one contract; an unreadable contract makes results 'unavailable'."""
+    def __init__(self, source, base_url):
+        self.source = source
+        self.base_url = base_url
+        self.loaded = False
+        self.error = None
+
+    def _load(self):
+        if not self.loaded:
+            self.loaded = True
+            try:
+                self.contract = self.source.load()
+                self.api = OpenAPI.from_dict(self.contract.document, config=Config(server_base_url=self.base_url))
+            except Exception as exc:
+                self.error = f'{type(exc).__name__}: {str(exc)[:500]}'
+
+    def check(self, request, route, response=None, *, phase):
+        self._load()
+        if self.error:
+            return outcome('unavailable', reason=self.error)
+        op = self.contract.by_route.get((request.method, route))
+        if op is None:
+            return outcome('not_described', reason='Operation absent from contract')
+        if phase == 'response' and (response is None or not response.status):
+            return outcome('not_run', reason='No HTTP response')
+        adapted = request_adapter(request, route)
+        # The environment chooses the transport host. Validate against the same
+        # operation at the contract's declared server (often a documentation mock).
+        path_item = self.contract.deref(self.contract.document['paths'][route])
+        servers = op.spec.get('servers', path_item.get('servers', self.contract.document.get('servers', [])))
+        if servers:
+            server = servers[0]
+            target = server['url']
+            for name, variable in server.get('variables', {}).items():
+                target = target.replace('{' + name + '}', str(variable['default']))
+            target = urljoin(self.base_url + '/', target).rstrip('/')
+            actual_prefix = urlsplit(self.base_url).path.rstrip('/')
+            suffix = adapted.path[len(actual_prefix):] if actual_prefix else adapted.path
+            location = urlsplit(target)
+            adapted.host_url = f'{location.scheme}://{location.netloc}'
+            adapted.path = location.path.rstrip('/') + suffix
+            adapted.full_url_pattern = target + route
+        try:
+            errors = list(self.api.iter_request_errors(adapted)) if phase == 'request' else list(self.api.iter_response_errors(adapted, response_adapter(response)))
+            if errors:
+                return outcome('invalid', [error_details(e) for e in errors])
+            # A body without any schema was not checked; never report it as conformant.
+            if phase == 'request':
+                described = self.contract.deref(op.spec.get('requestBody', {}))
+                has_body = request.body is not None
+            else:
+                responses = op.spec.get('responses', {})
+                described = self.contract.deref(responses.get(str(response.status), responses.get(f'{response.status // 100}XX', responses.get('default', {}))))
+                has_body = bool(response.content)
+            content = described.get('content', {})
+            if has_body and not any('schema' in media for media in content.values()):
+                return outcome('not_described', reason='Body schema absent')
+            return outcome('valid')
+        except Exception as exc:
+            return outcome('unavailable', reason=f'{type(exc).__name__}: {str(exc)[:500]}')

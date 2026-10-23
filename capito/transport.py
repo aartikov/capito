@@ -1,0 +1,150 @@
+"""HTTP transport on httpx and request encoding. Nothing is written to disk."""
+from dataclasses import dataclass
+import json
+import socket
+import sys
+import threading
+import time
+import uuid
+from urllib.parse import quote, urlencode
+
+import httpx
+
+from .files import File
+
+
+@dataclass
+class Request:
+    """A ready-to-send request: the body is already encoded and Content-Type is in headers."""
+    method: str
+    url: str
+    headers: dict
+    body: bytes | None = None
+    content_type: str | None = None
+
+
+@dataclass
+class Response:
+    status: int                           # 0 when no response arrived
+    headers: dict                         # lowercase names; a repeated header (Set-Cookie) is a list of values
+    content: bytes
+    duration: float = 0
+    error: str | None = None
+
+
+def first(value):
+    """One value of a header that may repeat."""
+    return value[0] if isinstance(value, list) else value
+
+
+def interface_options(name):
+    """Socket options that send connections through the named interface, whatever the routing table says."""
+    if sys.platform == 'darwin':
+        return [(socket.IPPROTO_IP, getattr(socket, 'IP_BOUND_IF', 25), socket.if_nametoindex(name))]
+    if sys.platform.startswith('linux'):
+        return [(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, name.encode())]
+    raise OSError(f'interface is not supported on {sys.platform}')
+
+
+class HttpxTransport:
+    """One connection pool per client; no proxies, certificates or .netrc from the environment, no redirects."""
+    def __init__(self, config):
+        self.config = config
+        self._client = None
+        self._guard = threading.Lock()
+
+    def _http(self):
+        with self._guard:
+            if self._client is None:
+                bound = {}
+                if self.config.interface:
+                    # The option is IPv4-level, so the socket must be IPv4 too.
+                    bound = dict(local_address='0.0.0.0', socket_options=interface_options(self.config.interface))
+                self._client = httpx.Client(
+                    transport=httpx.HTTPTransport(retries=0, trust_env=False, **bound), trust_env=False,
+                    follow_redirects=False, timeout=httpx.Timeout(self.config.timeout, connect=self.config.connect_timeout))
+            return self._client
+
+    def send(self, request):
+        for key, value in request.headers.items():
+            if any(c in str(key) + str(value) for c in "\r\n"):
+                raise ValueError("Header injection is not allowed")
+        start = time.monotonic()
+        try:
+            response = self._http().request(request.method, request.url, headers=request.headers, content=request.body)
+        except (httpx.HTTPError, OSError) as exc:  # timeouts, refused connections, an unknown interface
+            return Response(0, {}, b"", time.monotonic() - start, f"{type(exc).__name__}: {exc}")
+        headers = {}
+        for key, value in response.headers.multi_items():
+            key = key.lower()
+            if key in headers:
+                previous = headers[key]
+                headers[key] = (previous if isinstance(previous, list) else [previous]) + [value]
+            else:
+                headers[key] = value
+        return Response(response.status_code, headers, response.content, time.monotonic() - start)
+
+    def close(self):
+        with self._guard:
+            if self._client is not None:
+                self._client.close()
+                self._client = None
+
+
+def scalar(value):
+    return str(value).lower() if isinstance(value, bool) else str(value)
+
+
+def build_url(route, path, query):
+    """Fill {name} templates and encode query; lists repeat the key, other shapes are explicit."""
+    for name, value in path.items():
+        route = route.replace("{" + name + "}", quote(scalar(value), safe=""))
+    if "{" in route:
+        raise ValueError("Path parameters missing")
+    pairs = []
+    for name, value in query.items():
+        if isinstance(value, dict):
+            raise TypeError(f"Query parameter {name!r}: encode objects explicitly, e.g. as separate keys")
+        if isinstance(value, (list, tuple)):
+            pairs.extend((name, scalar(v)) for v in value)
+        else:
+            pairs.append((name, scalar(value)))
+    return route + ("?" + urlencode(pairs) if pairs else "")
+
+
+def multipart_part(boundary, name, value):
+    if any(c in name for c in '\r\n"'):
+        raise ValueError("Invalid multipart field name")
+    if isinstance(value, File):
+        if any(c in value.name + value.media_type for c in '\r\n"'):
+            raise ValueError("Invalid multipart filename/content type")
+        head = f'Content-Disposition: form-data; name="{name}"; filename="{value.name}"\r\nContent-Type: {value.media_type}'
+        content = value.read()
+    elif isinstance(value, (str, int, float, bool)):
+        head = f'Content-Disposition: form-data; name="{name}"'
+        content = scalar(value).encode()
+    else:
+        raise TypeError(f"Multipart field {name!r}: use text, numbers, bool, File or a list of them; encode nested data yourself")
+    return f'--{boundary}\r\n{head}\r\n\r\n'.encode() + content + b"\r\n"
+
+
+def encode_body(*, body=None, multipart=None, raw=None, content_type=None):
+    """Encode exactly one body kind; returns (bytes or None, media type or None)."""
+    if multipart is not None:
+        boundary = "capito-" + uuid.uuid4().hex
+        parts = [multipart_part(boundary, name, item)
+                 for name, value in multipart.items()
+                 for item in (value if isinstance(value, (list, tuple)) else [value])]
+        parts.append(f"--{boundary}--\r\n".encode())
+        return b"".join(parts), "multipart/form-data; boundary=" + boundary
+    if raw is not None:
+        return raw, content_type or "application/octet-stream"
+    if body is None:
+        return None, content_type
+    if isinstance(body, bytes):
+        return body, content_type or "application/octet-stream"
+    if content_type and content_type != "application/json":
+        if content_type == "application/x-www-form-urlencoded" and isinstance(body, dict):
+            return urlencode(body, doseq=True).encode(), content_type
+        return str(body).encode(), content_type
+    return json.dumps(body, ensure_ascii=False, allow_nan=False).encode(), "application/json"

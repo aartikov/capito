@@ -1,0 +1,17 @@
+# capito
+
+A ready tool for working with HTTP APIs from Python scripts and agents, extended by each project with its own commands: help from the OpenAPI contract, calls, accounts with Bearer sessions, contract checks, result viewing with secret masking. Not a testing framework: it knows nothing about plans, reports or requirements.
+
+## Adding to a project
+
+In the project's `requirements.lock` (Python 3.12+):
+
+```
+capito @ git+https://github.com/aartikov/capito.git@v0.1.0
+```
+
+## Documentation
+
+Served by the installed version: `python -m capito docs usage` for working with an API, `python -m capito docs extending` for connecting your own API.
+
+Development goes through an agent; the rules are in [AGENTS.md](AGENTS.md).
