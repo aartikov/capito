@@ -33,7 +33,9 @@ python3 -m venv .venv
 
 - The public API is what `capito/__init__.py` exports, `capito.testing`, the CLI, the `capito.toml` keys and the methods described in `docs extending`. Reflect changes to it in the documentation and the version.
 - Changing the file format in `capito_state` breaks projects' sessions: avoid it or describe the migration.
-- A release is a git tag `vX.Y.Z` with the same `version` in `pyproject.toml`. While the version is below 1.0, an incompatible change is a new minor version. Projects pin capito by tag and upgrade themselves by changing the tag.
+- While the version is below 1.0, an incompatible change is a new minor version. Projects pin `capito==X.Y.Z` and upgrade themselves.
+- Dependencies in `pyproject.toml` are ranges that users can resolve against their own packages; exact versions live only in `requirements.lock`.
+- A release: raise `version` in `pyproject.toml`, commit, push a tag `vX.Y.Z` with the same version. The workflow `.github/workflows/publish.yml` runs the tests, checks that the tag matches the version, builds and uploads to PyPI through Trusted Publishing (no tokens). A published version cannot be uploaded again: fix mistakes with a new version.
 - Platforms: macOS and Linux are tested; Windows is supported in code (locking through `msvcrt`, `os.replace` retry) but not tested; `interface` is not supported on Windows. `docs usage` and `docs extending` say the same; when changing support, update all three places.
 
 ## Checks

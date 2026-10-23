@@ -4,21 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "capito"
-version = "0.1.0"
+version = "0.1.1"
 description = "Explore and call an HTTP API from Python: contract-based help, validation, accounts and project commands"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{name = "Artur Artikov", email = "a.artikov@gmail.com"}]
 requires-python = ">=3.12"
-dependencies = ["PyYAML>=6", "openapi-core==0.23.1", "httpx==0.28.1", "jsonschema>=4"]
+dependencies = ["PyYAML>=6", "openapi-core>=0.23.1,<0.24", "httpx>=0.28.1,<0.29", "jsonschema>=4"]
 
 [project.urls]
 Repository = "https://github.com/aartikov/capito"
 Issues = "https://github.com/aartikov/capito/issues"
 
 [project.optional-dependencies]
-test = ["pytest>=8", "respx==0.22.0"]
+test = ["pytest>=8", "respx>=0.22,<0.23"]
 
 [tool.setuptools.packages.find]
 include = ["capito"]

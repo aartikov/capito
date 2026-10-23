@@ -8,7 +8,7 @@ capito is a ready tool that knows nothing about any particular API. A project ex
 my-testing/
 ├── capito.toml            client = "my_api:Client", environments, contracts, [view]
 ├── pyproject.toml         capito dependency; the my_api package
-├── requirements.lock      capito @ git+https://github.com/aartikov/capito.git@vX.Y.Z (or -e ../capito during development)
+├── requirements.lock      capito==X.Y.Z (or -e ../capito during development)
 ├── api/backend_api.yaml   the contract, if it is kept in the project
 └── my_api/
     ├── __init__.py        class Client(capito.Client)
