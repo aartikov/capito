@@ -59,11 +59,11 @@ analyst_api = "https://docs.example.test/openapi.yaml"      # or an http(s) addr
 [view]                              # the project's view limits (section 6); without the section everything is "all"
 depth = 1
 items = 5
-width = 80
+width = 120
 lines = 60
 
 [view.help]
-width = 200
+width = 240
 items = "all"
 lines = "all"
 
@@ -303,7 +303,7 @@ print(r.view("body.status", "body.owner.name", "body.tags[].name"))
 
 ```
 … +42 (items=5)
-A leisurely walk along the seafront avenue…(+120, width=80)
+A leisurely walk along the seafront avenue…(+120, width=120)
 … 40 more lines (lines=60); narrow the paths or raise lines
 ```
 

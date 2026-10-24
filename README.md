@@ -66,6 +66,9 @@ lines = 60
 width = 240
 items = "all"
 lines = "all"
+
+[view.list]                         # operations(), accounts.list(): one line per entry
+depth = 0
 ```
 
 ### Explore and call
