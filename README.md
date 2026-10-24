@@ -29,7 +29,7 @@ Requires Python 3.12+:
 pip install capito
 ```
 
-Pin the version in your project, for example `capito==0.2.0`.
+Pin the version in your project, for example `capito==0.2.2`.
 
 ### Configure
 
