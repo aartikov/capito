@@ -88,7 +88,7 @@ def test_issues_name_extra_and_missing_fields_without_values(tmp_path, make_clie
     issue = extra.validation['backend_api']['response']['errors'][0]['issues'][0]
     assert issue['rule'] == 'additionalProperties' and issue['extra'] == ['amount', 'secret']
     assert 'value' not in json.dumps(extra.validation)
-    assert extra.view('validation').splitlines()[-1] == '  backend_api: response invalid: <root> extra amount, secret'
+    assert extra.view('validation').splitlines()[-1] == "  backend_api: response invalid: <root> extra 'amount', 'secret'"
     missing = c.call('POST', '/things', body={'id': 1})
     assert missing.validation['backend_api']['response']['errors'][0]['issues'][0]['missing'] == ['id']
 
@@ -139,3 +139,51 @@ def test_raw_bytes_are_a_string_only_with_the_binary_format():
     assert errors({'type': 'string'}, b'\x89PNG')
     assert errors({'type': 'integer', 'format': 'binary'}, b'\x89PNG')
     assert errors({'type': 'string', 'format': 'binary'}, 1)
+
+
+def items_contract(tmp_path):
+    """GET /items needs a query limit; POST /items needs a bearer token and answers an item with three required fields."""
+    item = {'type': 'object', 'required': ['name', 'status', 'owner'],
+            'properties': {'name': {'type': 'string'}, 'status': {'type': 'string'}, 'owner': {'type': 'string'}}}
+    ok = {'200': {'description': 'ok', 'content': {'application/json': {'schema': item}}}}
+    data = {'openapi': '3.1.0', 'info': {'title': 'test', 'version': '1'},
+            'components': {'securitySchemes': {'bearer': {'type': 'http', 'scheme': 'bearer'}}},
+            'paths': {'/items': {
+                'get': {'parameters': [{'name': 'limit', 'in': 'query', 'required': True,
+                                        'schema': {'type': 'integer', 'maximum': 50}}], 'responses': ok},
+                'post': {'security': [{'bearer': []}], 'responses': ok}}}}
+    path = tmp_path / 'items.json'
+    path.write_text(json.dumps(data))
+    return path
+
+
+def test_several_missing_fields_are_one_issue(tmp_path, make_client):
+    c = make_client(items_contract(tmp_path), replies=[(200, {})], validate=True)
+    result = c.call('GET', '/items', query={'limit': 10})
+    assert result.validation['backend_api']['response']['errors'][0]['issues'] == [
+        {'path': [], 'rule': 'required', 'expected': ['name', 'status', 'owner'], 'missing': ['name', 'status', 'owner']}]
+    assert result.view('validation').splitlines()[-1] == "  backend_api: response invalid: <root> missing 'name', 'status', 'owner'"
+
+
+@pytest.mark.parametrize('query,error,line', [
+    ({'limit': 500}, {'in': 'query', 'name': 'limit'}, 'query.limit maximum'),
+    (None, {'in': 'query'}, "query missing 'limit'"),
+])
+def test_parameter_errors_name_the_parameter(tmp_path, make_client, query, error, line):
+    c = make_client(items_contract(tmp_path), replies=[(200, {'name': 'a', 'status': 'b', 'owner': 'c'})], validate=True)
+    result = c.call('GET', '/items', query=query)
+    assert error.items() <= result.validation['backend_api']['request']['errors'][0].items()
+    assert result.view('validation').splitlines()[-1] == f'  backend_api: request invalid: {line}'
+
+
+def test_missing_authorization_names_the_scheme(tmp_path, make_client):
+    c = make_client(items_contract(tmp_path), replies=[(200, {'name': 'a', 'status': 'b', 'owner': 'c'})], validate=True)
+    result = c.call('POST', '/items')
+    assert result.validation['backend_api']['request']['errors'][0]['in'] == 'security'
+    assert result.view('validation').splitlines()[-1] == "  backend_api: request invalid: security missing 'bearer'"
+
+
+def test_the_reason_is_shown_for_a_status_without_violations(tmp_path, make_client):
+    c = make_client(items_contract(tmp_path), tmp_path / 'missing.yaml', [(200, {'name': 'a', 'status': 'b', 'owner': 'c'})], True)
+    line = c.call('GET', '/items', query={'limit': 10}).view('validation').splitlines()[-1]
+    assert line.startswith('  analyst_api: unavailable (') and 'missing.yaml' in line

@@ -29,11 +29,11 @@ Requires Python 3.12+:
 pip install capito
 ```
 
-Pin the version in your project, for example `capito==0.1.5`.
+Pin the version in your project, for example `capito==0.2.0`.
 
 ### Configure
 
-Put `capito.toml` at the root of your project, next to the spec. capito finds it from any subfolder, the way git finds its repository.
+Put `capito.toml` at the root of your project. capito finds it from any subfolder, the way git finds its repository.
 
 ```toml
 # client = "my_api:Client"          # your Client subclass: accounts, sign-in, commands (python -m capito docs extending)
@@ -44,26 +44,26 @@ state = "capito_state"              # local accounts and sessions; keep it out o
 base_url = "https://dev.example.com"
 timeout = 30                        # seconds per stage of the exchange
 connect_timeout = 10
-help_contract = "backend"           # the spec that help is built from
+help_contract = "backend_api"       # the spec that help is built from
 
-[environments.dev.contracts]        # specs to validate against: a path or a URL
-backend = "openapi.yaml"
-docs = "https://docs.example.com/openapi.yaml"
+[environments.dev.contracts]        # specs to validate against: a URL or a path
+backend_api = "https://dev.example.com/openapi.yaml"     # what the backend of this environment serves
+analyst_api = "docs/my-api.yaml"                         # what the analysts specified
 
 [environments.staging]
 base_url = "https://staging.example.com"
 
 [environments.staging.contracts]    # a single spec needs no help_contract
-backend = "openapi.yaml"
+backend_api = "https://staging.example.com/openapi.yaml"
 
-[view]                              # how much of a result is printed by default
-depth = 1
+[view]                              # default output limits; the agent can override them per call
+depth = 1                           # levels of nesting expanded
 items = 5
-width = 80
+width = 120
 lines = 60
 
-[view.help]                         # help cards in full
-width = 120
+[view.help]                         # help cards: wider, no cuts by items or lines
+width = 240
 items = "all"
 lines = "all"
 ```
@@ -75,17 +75,19 @@ import capito
 
 client = capito.Client.from_config(validate=True)
 print(client.operations("items"))                     # what exists about items
-print(client.describe("api:GET /items/{itemId}"))     # one compact card
+print(client.describe("api:GET /items/{itemId}"))     # the help card; print(x) prints x.view()
 r = client.call("GET", "/items/{itemId}", path={"itemId": "item-1"})
-print(r)                                              # status, validation, body shape
-print(r.view("body", "validation"))                   # drill down where needed
+print(r)                                              # summary: status, validation, body shape
+print(r.view("body", "validation"))                   # chosen parts, deeper with depth=…
 ```
 
 The same help is available from the shell: `python -m capito operations items` and `python -m capito describe "api:GET /items/{itemId}"`. Accounts, sign-in and project commands come with your own `Client` subclass: see `python -m capito docs extending`.
 
 ### What the agent sees
 
-A help card holds just enough schema to make the call. `↓3` marks a part that can be expanded on request:
+Everything capito shows, a help card or a call result, goes through one method: `x.view(*paths, depth=…, items=…, width=…, lines=…)`. Paths choose what to show, limits say how much. A limit that is not passed comes from `[view]` in `capito.toml`, so `print(x)` prints `x.view()` with the limits from the config. The main limit is `depth`, the number of nesting levels expanded. A collapsed part shows its keys and a marker like `↓3`: three more levels lie below it, and `depth=3` on that part reaches the leaves. In the shell the limits are options: `--depth`, `--items` and so on.
+
+`client.describe("api:GET /items/{itemId}").view()`, the help card of an operation, lists its parameters, responses and the schemas of their bodies. At `depth = 1` from the config, `owner` is collapsed; `.view(depth="all")` would expand it:
 
 ```
 api:GET /items/{itemId} — Get item
@@ -97,7 +99,7 @@ returns: Result
 Item = {
   id: string
   name: string  # Shown in the catalog
-  status: DRAFT|ACTIVE|ARCHIVED
+  status?: DRAFT|ACTIVE|ARCHIVED
   owner: {id, name, avatar} ↓3
   tags?: {name}[](<=5)
 }
@@ -107,12 +109,44 @@ Error = {
 example: client.call('GET', '/items/{itemId}', path={'itemId': 'example'})
 ```
 
-A result is one line. Here it also shows that the backend returns a field the spec doesn't have:
+A call result's view starts with a summary line: status, time, the check against each spec and the top-level keys of the body. `r.view()` has no paths, so the line is all it shows:
 
 ```
-200 GET /items/{itemId} · 0.03s · backend: req=valid resp=invalid · body {id, name, status, +3} ↓4
+200 GET /items/{itemId} · 0.03s · backend_api: valid · analyst_api: req=valid resp=invalid · body {id, name, owner, +1} ↓4
+```
+
+`r.view("body")` adds the body under the line, at `depth = 1`:
+
+```
+200 GET /items/{itemId} · 0.03s · backend_api: valid · analyst_api: req=valid resp=invalid · body {id, name, owner, +1} ↓4
+body:
+  id: item-1
+  name: Desk lamp
+  owner: {id, name, avatar} ↓3
+  tags: [2] {name}
+```
+
+`r.view("body.owner", depth=3)` raises the limit for this call and opens `owner` down to the leaves:
+
+```
+200 GET /items/{itemId} · 0.03s · backend_api: valid · analyst_api: req=valid resp=invalid · body {id, name, owner, +1} ↓4
+body.owner:
+  id: u-1
+  name: Alice
+  avatar:
+    url: https://cdn.example.com/a.png
+    size:
+      width: 256
+      height: 256
+```
+
+The summary line says that the response matches the backend's spec but not the analysts' one. `r.view("validation")` shows why: the backend left out `status`, which the analysts made required:
+
+```
+200 GET /items/{itemId} · 0.03s · backend_api: valid · analyst_api: req=valid resp=invalid · body {id, name, owner, +1} ↓4
 validation:
-  backend: response invalid: <root> extra price
+  backend_api: valid
+  analyst_api: response invalid: <root> missing 'status'
 ```
 
 ### Tell your agent
@@ -130,6 +164,7 @@ Requests to the API go through capito.
 - In Python: `from my_api import Client; client = Client.from_config()`; pass `as_user="<account>"` for authorized requests.
 - Look at results only through `print(r)` and `r.view(...)`: they mask secrets. Never print raw `r.body`, `r.headers` or `r.request`.
 - Send requests that change data only when the task asks for them.
+- Before changing the client in `my_api/` (new commands, authorization, accounts), read `python -m capito docs extending`.
 ```
 
 ## Documentation

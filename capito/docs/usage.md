@@ -7,7 +7,7 @@ This document applies to any connected API and matches the installed capito vers
 ## 1. In short
 
 1. **Find → read the help → call → look:** `operations(...)` → `describe(id)` → a command or `call()` → `print(r)` / `r.view(...)`.
-2. **Two planes.** Logic works with attributes (`r.status`, `r.body`, `r.data`…): these are raw data. Look at a result only through `print(x)` and `x.view(...)`; they always mask secrets. Do not print raw `r.body`, `r.request`, `r.headers`.
+2. **Two planes.** Logic works with attributes (`r.status`, `r.body`, `r.data`…): these are raw data. Look at a result only through `x.view(...)`, which returns a ready string, and `print(x)`, which prints `x.view()` with the limits from the config; both always mask secrets. Do not print raw `r.body`, `r.request`, `r.headers`.
 3. **The account goes into every call:** `as_user="alice"`. Without it the request is anonymous; there is no "current user". Accounts exist if the project declared an `accounts` command set; otherwise `as_user` raises an error.
 4. **A domain command beats `call()`** when its behavior fits. `call()` is for an endpoint without a command and for exact control of the request.
 5. **Mutating calls only within the task.** Help and examples do not grant permission to create anything.
@@ -126,7 +126,7 @@ print(client.operations("items", kind="command").view(depth=1))
 
 On a typo `describe` raises `ValueError` with the closest options: `Unknown schema: FileDTO; did you mean FileDto?`. Help reads no accounts and does not call the API; the network is needed only for the first load of a contract given by address.
 
-`print(help)` prints the card with the `[view.help]` limits; without them the card is complete, and with `depth = 1` from the example above objects are expanded one level. Deeper, a named object is shown by name and an inline one by its keys `{a, b, c, +N}`; `↓K` on both says how much to raise `depth` to reach the leaves, as in `view()`. Named and inline objects count the same way, and a schema met at different levels is resolved from the shallowest one. Deeper: `help.view(depth=2)`; everything: `help.view(depth="all")`; one schema: `describe("schema:Name")`. Card fields are attributes: `help.call`, `help.returns`, `help.example`; a missing field is `None`.
+`print(help)` prints `help.view()`: the card with the `[view.help]` limits; without them the card is complete, and with `depth = 1` from the example above objects are expanded one level. Deeper, a named object is shown by name and an inline one by its keys `{a, b, c, +N}`; `↓K` on both says how much to raise `depth` to reach the leaves, as in `view()`. Named and inline objects count the same way, and a schema met at different levels is resolved from the shallowest one. Deeper: `help.view(depth=2)`; everything: `help.view(depth="all")`; one schema: `describe("schema:Name")`. Card fields are attributes: `help.call`, `help.returns`, `help.example`; a missing field is `None`.
 
 | Field | Command | `api:` |
 | --- | --- | --- |
@@ -249,13 +249,13 @@ When a step fails, dependent steps do not run, what was done is not rolled back,
 
 ## 6. Viewing: `print` and `view`
 
-Every object (result, account, list, help card) has one viewing mechanism: `x.view(...)` returns a ready string, and `print(x)` is `x.view()` with default settings. Secrets are always masked; this cannot be turned off.
+Every object (result, account, list, help card) has one viewing mechanism: `x.view(...)` returns a ready string; `str(x)` is `x.view()`, so `print(x)` prints it with the default settings. Secrets are always masked; this cannot be turned off.
 
 ```python
 r.view(*paths, depth=…, items=…, width=…, lines=…, format="text")   # limits not passed come from the [view] config
 ```
 
-**Summary line.** `print(r)` is one line; the same line opens every `view`:
+**Summary line.** `r.view()` without paths, which is what `print(r)` prints, is one line; every `view` of the result opens with it:
 
 ```
 200 GET /items/{itemId} · 0.21s · backend_api: valid · analyst_api: valid · body {id, title, owner, +9} ↓3
@@ -327,7 +327,7 @@ print(r.view("body.status", "body.endedAt", format="json"))
 
 `view` values are masked by the project's policy (fields and query parameters with tokens, passwords, codes, signatures, authorization headers and cookies, `Bearer …` and JWTs in text; the effective rules: `print(client.core.secrets)`) and by values commands marked as secret. Personal data such as phone numbers and names is not anonymized.
 
-| Object | `print(x)` | More |
+| Object | `x.view()`, printed by `print(x)` | More |
 | --- | --- | --- |
 | `Result` | summary line | `view("body")`, `view("validation")`, `view("request", depth=2)` |
 | `CompoundResult` | outcome, failed step, step validation, `data` with full IDs | `view("steps")` gives a line per step; `view("steps.publish.body")` |
@@ -412,15 +412,17 @@ Turned on for the client (`validate=True` in `from_config`) or per call. Checks 
 | `not_run` | There was no HTTP response |
 | `unavailable` | The contract or validator is unavailable (in `reason`) |
 
-Only `valid` counts as success. Every schema error is `{"path", "rule", "expected"}`, plus `extra: [names]` or `missing: [names]` for extra and missing fields: names only, no values. In `view` it looks like this:
+Only `valid` counts as success. Every schema error is `{"path", "rule", "expected"}`, plus `extra: [names]` or `missing: [names]` for extra and missing fields: names only, no values. An error in a parameter or in authorization also has `in` (`query`, `path`, `header`, `cookie` or `security`) and, for a parameter, its `name`; the path in `view` starts from them. In `view`, a line per contract gives the path, then the rule or the quoted field names; a status without violations shows its reason in brackets:
 
 ```
 validation:
-  backend_api: response invalid: items[0] extra id, tariff, amount, currency, status +4
-  analyst_api: not_described
+  backend_api: response invalid: items[0] extra 'id', 'tariff', 'amount', 'currency', 'status' +4
+  analyst_api: not_described (Operation absent from contract)
 ```
 
-A request without authorization gives `req=invalid` for an operation that requires it; this is expected in a negative check.
+Other lines look like `owner missing 'name'`, `tags[1].name type`, `status enum`, `query.limit maximum`, `query missing 'limit'`.
+
+A request without authorization gives `req=invalid` (`security missing 'bearer'`) for an operation that requires it; this is expected in a negative check.
 
 ## 9. Pitfalls
 

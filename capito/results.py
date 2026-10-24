@@ -149,7 +149,8 @@ def validation_line(phases):
     """'valid', or the phases that are not valid with their issues, e.g. 'response invalid: items[0] extra id, +6'."""
     statuses = {phase: (phases.get(phase) or {}).get('status') for phase in ('request', 'response')}
     if len(set(statuses.values())) == 1 and statuses['request'] != 'invalid':
-        return statuses['request']
+        reason = (phases.get('request') or phases.get('response') or {}).get('reason')
+        return statuses['request'] + (f' ({reason})' if reason else '')
     parts = []
     for phase, status in statuses.items():
         details = phases.get(phase) or {}
@@ -164,12 +165,15 @@ def issue_text(error):
     if 'issues' not in error:
         return error.get('message', error.get('type', 'error'))
     texts = []
+    # A parameter or security error starts its path from where it was found: 'query.limit', 'security'.
+    base = '.'.join(str(part) for part in (error.get('in'), error.get('name')) if part)
     for issue in error['issues']:
-        path = ''.join(f'[{p}]' if isinstance(p, int) else f'.{p}' for p in issue.get('path', [])).lstrip('.') or '<root>'
+        path = (base + ''.join(f'[{p}]' if isinstance(p, int) else f'.{p}' for p in issue.get('path', []))).lstrip('.') or '<root>'
         names = next(((key, issue[key]) for key in ('extra', 'missing') if issue.get(key)), None)
         if names:
             key, fields = names
-            texts.append(f"{path} {key} {', '.join(fields[:5])}" + (f' +{len(fields) - 5}' if len(fields) > 5 else ''))
+            joint = ' or ' if issue.get('rule') == 'security' else ', '
+            texts.append(f"{path} {key} {joint.join(repr(str(f)) for f in fields[:5])}" + (f' +{len(fields) - 5}' if len(fields) > 5 else ''))
         else:
             texts.append(f"{path} {issue.get('rule')}")
     return '; '.join(texts)

@@ -6,6 +6,8 @@ from http.cookies import SimpleCookie
 from jsonschema.validators import extend
 from openapi_core import OpenAPI, Config, V31RequestValidator, V31ResponseValidator
 from openapi_core.datatypes import RequestParameters
+from openapi_core.templating.security.exceptions import SecurityNotFound
+from openapi_core.validation.request.exceptions import MissingParameterError, ParameterValidationError, SecurityValidationError
 from openapi_core.validation.schemas.factories import DialectSchemaValidatorsFactory
 from openapi_schema_validator import OAS30ReadValidator, OAS31Validator
 from openapi_schema_validator.validators import OAS31_BASE_DIALECT_ID
@@ -64,16 +66,34 @@ def issue(error):
     return found
 
 
+def causes(error):
+    while error is not None:
+        yield error
+        error = error.__cause__
+
+
 def error_details(error):
     # Library exception strings can embed an entire image or response. Keep useful
     # schema paths/rules without duplicating payloads in the validation report.
-    cause = error
-    while cause is not None:
-        schema_errors = getattr(cause, 'schema_errors', None)
-        if schema_errors:
-            return {'type': type(error).__name__, 'issues': [issue(e) for e in schema_errors]}
-        cause = cause.__cause__
-    return {'type': type(error).__name__, 'message': str(error)[:500]}
+    found = {'type': type(error).__name__}
+    if isinstance(error, ParameterValidationError):
+        found['in'] = error.location
+        if isinstance(error, MissingParameterError):
+            return found | {'issues': [{'path': [], 'rule': 'required', 'expected': [error.name], 'missing': [error.name]}]}
+        found['name'] = error.name
+    if isinstance(error, SecurityValidationError):
+        missing = next((c for c in causes(error) if isinstance(c, SecurityNotFound)), None)
+        if missing is not None:
+            names = [' + '.join(schemes) for schemes in missing.schemes]
+            return found | {'in': 'security', 'issues': [{'path': [], 'rule': 'security', 'expected': missing.schemes, 'missing': names}]}
+    for cause in causes(error):
+        if getattr(cause, 'schema_errors', None):
+            issues = []
+            for e in cause.schema_errors:  # jsonschema repeats a 'required' error for every absent field
+                if (found_issue := issue(e)) not in issues:
+                    issues.append(found_issue)
+            return found | {'issues': issues}
+    return found | {'message': str(error)[:500]}
 
 
 def request_adapter(request, route):
