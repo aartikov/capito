@@ -3,11 +3,45 @@ import re
 from types import SimpleNamespace
 from urllib.parse import urlsplit, parse_qsl, urljoin
 from http.cookies import SimpleCookie
-from openapi_core import OpenAPI, Config
+from jsonschema.validators import extend
+from openapi_core import OpenAPI, Config, V31RequestValidator, V31ResponseValidator
 from openapi_core.datatypes import RequestParameters
+from openapi_core.validation.schemas.factories import DialectSchemaValidatorsFactory
+from openapi_schema_validator import OAS30ReadValidator, OAS31Validator
+from openapi_schema_validator.validators import OAS31_BASE_DIALECT_ID
 from werkzeug.datastructures import Headers, MultiDict
 
 from .transport import first
+
+
+# openapi-core decodes a binary form part or body to bytes. OAS 3.0 validation counts bytes as a string
+# with format: binary; OAS 3.1 validation lacks that rule, so every file upload looked invalid. The rule
+# is added back for 3.1; remove it once openapi-schema-validator has it.
+def binary_type(validator, types, instance, schema):
+    if isinstance(instance, bytes) and schema.get('format') == 'binary' and 'string' in ([types] if isinstance(types, str) else types):
+        return
+    yield from OAS31Validator.VALIDATORS['type'](validator, types, instance, schema)
+
+
+OAS31BinaryValidator = extend(OAS31Validator, {'type': binary_type})
+
+
+class BinaryValidatorsFactory(DialectSchemaValidatorsFactory):
+    """openapi-core's OAS 3.1 factory with the binary rule; schemas of other dialects keep their validator."""
+    def get_validator_cls(self, spec, schema):
+        found = super().get_validator_cls(spec, schema)
+        return OAS31BinaryValidator if found is OAS31Validator else found
+
+
+binary_validators = BinaryValidatorsFactory(OAS31Validator, OAS31_BASE_DIALECT_ID, format_checker=OAS30ReadValidator.FORMAT_CHECKER)
+
+
+class BinaryRequestValidator(V31RequestValidator):
+    schema_validators_factory = binary_validators
+
+
+class BinaryResponseValidator(V31ResponseValidator):
+    schema_validators_factory = binary_validators
 
 
 
@@ -73,7 +107,10 @@ class Validator:
             self.loaded = True
             try:
                 self.contract = self.source.load()
-                self.api = OpenAPI.from_dict(self.contract.document, config=Config(server_base_url=self.base_url))
+                binary = {}
+                if str(self.contract.document.get('openapi', '')).startswith('3.1'):
+                    binary = dict(request_validator_cls=BinaryRequestValidator, response_validator_cls=BinaryResponseValidator)
+                self.api = OpenAPI.from_dict(self.contract.document, config=Config(server_base_url=self.base_url, **binary))
             except Exception as exc:
                 self.error = f'{type(exc).__name__}: {str(exc)[:500]}'
 

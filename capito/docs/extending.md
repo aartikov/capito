@@ -260,7 +260,7 @@ def test_get(alice, respx_mock):
 
 respx is strict: a test fails on a request without a route and on a route that was not called. So a test "a compound command stops when a step fails" sets routes only for the steps that should happen, and that is how it proves no further requests were sent. Responses in sequence: `route.side_effect = [httpx.Response(...), ...]`; a response computed from the request: a function in `side_effect`.
 
-**Contract conformance through ordinary validation.** The test client is created with `validate=True`, and a command test checks `result.validation['<contract>']['request']['status'] == 'valid'`. For multipart uploads openapi-core gives a false `invalid`; check the form fields there.
+**Contract conformance through ordinary validation.** The test client is created with `validate=True`, and a command test checks `result.validation['<contract>']['request']['status'] == 'valid'`.
 
 `capito.testing` (extra `test`: pytest and respx):
 

@@ -420,7 +420,7 @@ validation:
   analyst_api: not_described
 ```
 
-A request without authorization gives `req=invalid` for an operation that requires it; this is expected in a negative check. Known limitation: a binary multipart field in OpenAPI 3.1 may give a false request `invalid` from openapi-core.
+A request without authorization gives `req=invalid` for an operation that requires it; this is expected in a negative check.
 
 ## 9. Pitfalls
 
