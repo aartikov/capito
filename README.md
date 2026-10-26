@@ -1,15 +1,17 @@
-# capito
+# Capito
 
 [![PyPI](https://img.shields.io/pypi/v/capito)](https://pypi.org/project/capito/)
 [![License](https://img.shields.io/pypi/l/capito)](https://github.com/aartikov/capito/blob/main/LICENSE)
 
-**Give your coding agent a feel for any HTTP API.** capito turns an OpenAPI spec into compact help the agent can read step by step. It keeps test users signed in, wraps multi-step flows into single commands and checks every response against the spec, all from plain Python.
+**Give your coding agent a feel for any HTTP API.**
 
-## Why capito
+Capito turns an OpenAPI spec into compact help the agent can read step by step. It keeps test users signed in, wraps multi-step flows into single commands and checks every response against the spec, all from plain Python.
+
+## Why Capito
 
 *Capito!* is Italian for "Got it!", the moment an API clicks. There is an `api` hidden in the name, too.
 
-When an agent works with an API, most of its effort goes into context rather than calls: huge specs, auth tokens, walls of JSON. capito keeps that context small:
+When an agent works with an API, most of its effort goes into context rather than calls: huge specs, auth tokens, walls of JSON. Capito keeps that context small:
 
 - **Explore, don't dump.** The agent searches operations by keyword, opens one compact card and expands a schema only where it needs to. It never has to load a large spec in one piece.
 - **Users and tokens are handled.** Named local accounts keep their Bearer sessions. Sign in once, then call with `as_user="alice"`. Your auth adapter refreshes tokens after a 401, and secrets are masked in all output.
@@ -17,7 +19,7 @@ When an agent works with an API, most of its effort goes into context rather tha
 - **The backend is checked against the spec.** Requests and responses can be validated against one or more OpenAPI contracts, so drift between backend and docs shows up right in the result.
 - **Output is made for reading.** Results print as one-line summaries with depth and size limits. The agent drills down only where it matters.
 
-capito is a library, not a test framework. Plans, reports and rules stay in your project.
+Capito is a library, not a test framework. Plans, reports and rules stay in your project.
 
 ## Quick start
 
@@ -25,7 +27,7 @@ capito is a library, not a test framework. Plans, reports and rules stay in your
 
 Requires Python 3.12+:
 
-```
+```bash
 pip install capito
 ```
 
@@ -33,7 +35,7 @@ Pin the version in your project, for example `capito==0.2.2`.
 
 ### Configure
 
-Put `capito.toml` at the root of your project. capito finds it from any subfolder, the way git finds its repository.
+Put `capito.toml` at the root of your project. Capito finds it from any subfolder, the way git finds its repository.
 
 ```toml
 # client = "my_api:Client"          # your Client subclass: accounts, sign-in, commands (python -m capito docs extending)
@@ -84,15 +86,33 @@ print(r)                                              # summary: status, validat
 print(r.view("body", "validation"))                   # chosen parts, deeper with depth=…
 ```
 
-The same help is available from the shell: `python -m capito operations items` and `python -m capito describe "api:GET /items/{itemId}"`. Accounts, sign-in and project commands come with your own `Client` subclass: see `python -m capito docs extending`.
+The same help is available from the shell:
 
-### What the agent sees
+```bash
+python -m capito operations items
+python -m capito describe "api:GET /items/{itemId}"
+```
 
-Everything capito shows, a help card or a call result, goes through one method: `x.view(*paths, depth=…, items=…, width=…, lines=…)`. Paths choose what to show, limits say how much. A limit that is not passed comes from `[view]` in `capito.toml`, so `print(x)` prints `x.view()` with the limits from the config. The main limit is `depth`, the number of nesting levels expanded. A collapsed part shows its keys and a marker like `↓3`: three more levels lie below it, and `depth=3` on that part reaches the leaves. In the shell the limits are options: `--depth`, `--items` and so on.
+Accounts, sign-in and project commands come with your own `Client` subclass: see `python -m capito docs extending`.
+
+## What the agent sees
+
+Everything Capito shows, a help card or a call result, goes through one method:
+
+```python
+x.view(*paths, depth=…, items=…, width=…, lines=…)
+```
+
+- **Paths** choose what to show, **limits** say how much.
+- A limit that is not passed comes from `[view]` in `capito.toml`, so `print(x)` prints `x.view()` with the limits from the config.
+- The main limit is `depth`, the number of nesting levels expanded. A collapsed part shows its keys and a marker like `↓3`: three more levels lie below it, and `depth=3` on that part reaches the leaves.
+- In the shell the limits are options: `--depth`, `--items` and so on.
+
+### Help card
 
 `client.describe("api:GET /items/{itemId}").view()`, the help card of an operation, lists its parameters, responses and the schemas of their bodies. At `depth = 1` from the config, `owner` is collapsed; `.view(depth="all")` would expand it:
 
-```
+```text
 api:GET /items/{itemId} — Get item
 auth: none
 request: path itemId: string
@@ -112,15 +132,17 @@ Error = {
 example: client.call('GET', '/items/{itemId}', path={'itemId': 'example'})
 ```
 
+### Call result
+
 A call result's view starts with a summary line: status, time, the check against each spec and the top-level keys of the body. `r.view()` has no paths, so the line is all it shows:
 
-```
+```text
 200 GET /items/{itemId} · 0.03s · backend_api: valid · analyst_api: req=valid resp=invalid · body {id, name, owner, +1} ↓4
 ```
 
 `r.view("body")` adds the body under the line, at `depth = 1`:
 
-```
+```text
 200 GET /items/{itemId} · 0.03s · backend_api: valid · analyst_api: req=valid resp=invalid · body {id, name, owner, +1} ↓4
 body:
   id: item-1
@@ -131,7 +153,7 @@ body:
 
 `r.view("body.owner", depth=3)` raises the limit for this call and opens `owner` down to the leaves:
 
-```
+```text
 200 GET /items/{itemId} · 0.03s · backend_api: valid · analyst_api: req=valid resp=invalid · body {id, name, owner, +1} ↓4
 body.owner:
   id: u-1
@@ -145,14 +167,14 @@ body.owner:
 
 The summary line says that the response matches the backend's spec but not the analysts' one. `r.view("validation")` shows why: the backend left out `status`, which the analysts made required:
 
-```
+```text
 200 GET /items/{itemId} · 0.03s · backend_api: valid · analyst_api: req=valid resp=invalid · body {id, name, owner, +1} ↓4
 validation:
   backend_api: valid
   analyst_api: response invalid: <root> missing 'status'
 ```
 
-### Tell your agent
+## Setting up your agent
 
 Add a section like this to `AGENTS.md` or `CLAUDE.md`:
 
@@ -172,11 +194,13 @@ Requests to the API go through capito.
 
 ## Documentation
 
-capito serves the docs of the installed version:
+Capito serves the docs of the installed version:
 
-- `python -m capito docs usage` covers working with an API: help, calls, accounts, validation and viewing results ([on GitHub](https://github.com/aartikov/capito/blob/main/capito/docs/usage.md)).
-- `python -m capito docs extending` covers connecting your API: the `Client` class, commands, authorization and tests ([on GitHub](https://github.com/aartikov/capito/blob/main/capito/docs/extending.md)).
+| Command | Covers | Source |
+| --- | --- | --- |
+| `python -m capito docs usage` | Working with an API: help, calls, accounts, validation and viewing results | [usage.md](https://github.com/aartikov/capito/blob/main/capito/docs/usage.md) |
+| `python -m capito docs extending` | Connecting your API: the `Client` class, commands, authorization and tests | [extending.md](https://github.com/aartikov/capito/blob/main/capito/docs/extending.md) |
 
 ## Status and license
 
-capito is at an early stage (0.x): a minor version may include breaking changes. It is MIT-licensed. Development rules are in [AGENTS.md](https://github.com/aartikov/capito/blob/main/AGENTS.md).
+Capito is at an early stage (0.x): a minor version may include breaking changes. It is MIT-licensed. Development rules are in [AGENTS.md](https://github.com/aartikov/capito/blob/main/AGENTS.md).
