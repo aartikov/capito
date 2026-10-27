@@ -8,8 +8,10 @@ from urllib.parse import unquote
 from . import view as views
 
 REDACTED = '<redacted>'
-# A query parameter inside any text: ?name=value or &name=value.
-QUERY_PARAMETER = re.compile(r'(?<=[?&])([^=&#\s"\'<>]+)=([^&#\s"\'<>]*)')
+# A name=value pair inside any text: after ? or & in an address, or opening a line, as in a form body
+# (client_secret=…&grant_type=…). Not after a space: summaries such as 'alice  session=no' are pairs of capito's own.
+# A name holds no ?, so a pair never swallows the address before it.
+QUERY_PARAMETER = re.compile(r'(?:(?<=[?&])|^)([^=&#?\s"\'<>]+)=([^&#\s"\'<>]*)', re.MULTILINE)
 # A JSON key inside any text, e.g. a JSON body that did not parse; its value is found by json_value_end().
 JSON_KEY = re.compile(r'"((?:[^"\\]|\\.)*)"\s*:\s*')
 

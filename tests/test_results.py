@@ -93,6 +93,19 @@ def test_hidden_keys_hide_their_values_in_json_text_that_did_not_parse():
     assert 'opaque' not in everything(result) and '1234' not in everything(result)
 
 
+@pytest.mark.parametrize('text, shown', [
+    ('access_token=opaque-a1&scope=repo&token_type=bearer', 'access_token=<redacted>&scope=repo&token_type=bearer'),
+    ('client_secret=opaque-s1&grant_type=client_credentials', 'client_secret=<redacted>&grant_type=client_credentials'),
+    ('expires_in=3600\nrefresh_token=opaque-r1', 'expires_in=3600\\nrefresh_token=<redacted>'),
+    ('http://x/items?session=opaque-q1&page=2', 'http://x/items?session=<redacted>&page=2'),
+    ('status=ok&page=2', 'status=ok&page=2'),
+])
+def test_hidden_keys_hide_their_values_in_form_text_from_its_first_pair(text, shown):
+    result = Result(policy=Secrets.http(), status=200, body=text, request={'body': text})
+    assert result.view('body', 'request.body', width='all') == f'{result.summary()} · body={shown} request.body={shown}'
+    assert 'opaque' not in everything(result)
+
+
 def test_api_keys_are_hidden_under_vendor_names_and_a_plain_key_only_when_declared():
     fields = dict(request={'url': 'http://x/items?key=k&page=2', 'headers': {'x-goog-api-key': 'g', 'X-RapidAPI-Key': 'r'}},
                   body={'googleApiKey': 'b'})
