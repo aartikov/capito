@@ -208,3 +208,14 @@ def test_a_body_that_is_not_utf8_is_invalid_not_unavailable(make_client):
     c = make_client(replies=[(200, {'id': 1})], validate=True)
     request = c.call('POST', '/things', raw=b'\xff\xfe{"id": 1}', content_type='application/json').validation['backend_api']['request']
     assert request['status'] == 'invalid'
+
+
+def test_a_cookie_value_with_characters_simplecookie_rejects_is_still_seen(tmp_path, make_client):
+    path = schema(tmp_path)
+    data = json.loads(path.read_text())
+    data['paths']['/things']['get']['parameters'] = [{'in': 'cookie', 'name': 'sid', 'required': True, 'schema': {'type': 'string'}}]
+    path.write_text(json.dumps(data))
+    c = make_client(path, replies=[(200, {'id': 1})] * 2, validate=True)
+    seen = c.call('GET', '/things', headers={'Cookie': 'theme=dark; sid=<a value>'}).validation['backend_api']['request']
+    missing = c.call('GET', '/things', headers={'Cookie': 'theme=dark'}).validation['backend_api']['request']
+    assert seen['status'] == 'valid' and missing['status'] == 'invalid'

@@ -70,7 +70,8 @@ class CoreRuntime:
                                    summary_identity=accounts.summary_identity if accounts else (),
                                    lookup=accounts.lookup if accounts else ())
         self.registry = Registry(lambda: self._sources[config.help_contract].load(),
-                                 help_limits=config.view['help'], list_limits=config.view['list'])
+                                 help_limits=config.view['help'], list_limits=config.view['list'],
+                                 accounts=accounts is not None)
 
     def __repr__(self):
         return f'<capito core of {type(self._client).__name__}: auth={type(self.auth).__name__}>'

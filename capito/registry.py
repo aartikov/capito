@@ -144,9 +144,10 @@ class Help:
 
 class Registry:
     """Commands of the client and help built from them and the help contract, read on first use."""
-    def __init__(self, contract, *, help_limits=ALL, list_limits=ALL):
+    def __init__(self, contract, *, help_limits=ALL, list_limits=ALL, accounts=False):
         self._contract = contract  # a Contract, or a callable returning it
         self.help_limits, self.list_limits = help_limits, list_limits
+        self.accounts = accounts  # the client has an accounts set, so examples may use as_user
         self.commands = {}
         self._references_checked = False
 
@@ -307,16 +308,44 @@ class Registry:
             args.append("as_user='alice'")
         return f'client.{name}(' + ', '.join(args) + ')'
 
+    def _credentials(self, op):
+        """Placeholders for the first way the contract allows to authorize op, as explicit arguments.
+
+        Returns (headers, query, cookies); nothing when the operation also allows anonymous calls.
+        """
+        headers, query, cookies = {}, {}, []
+        if not op.security or not all(op.security):
+            return headers, query, cookies
+        schemes = self.contract.document.get('components', {}).get('securitySchemes', {})
+        for name in op.security[0]:
+            scheme = self.contract.deref(schemes.get(name, {}))
+            kind, place = scheme.get('type'), scheme.get('in')
+            if kind == 'apiKey' and place == 'query':
+                query[scheme['name']] = '<api key>'
+            elif kind == 'apiKey' and place == 'cookie':
+                cookies.append(f"{scheme['name']}=<api key>")
+            elif kind == 'apiKey':
+                headers[scheme['name']] = '<api key>'
+            elif kind == 'http' and str(scheme.get('scheme', '')).lower() != 'bearer':
+                headers['Authorization'] = f"{str(scheme.get('scheme', '')).title()} <credentials>"
+            elif kind in ('http', 'oauth2', 'openIdConnect'):
+                headers['Authorization'] = 'Bearer <token>'
+        return headers, query, cookies
+
     def _raw_example(self, op):
+        # With accounts the example signs in by as_user; without them as_user is an error, so the
+        # credentials the contract asks for are spelled out with placeholders.
+        auth_headers, auth_query, auth_cookies = ({}, {}, []) if self.accounts else self._credentials(op)
         values = {}
-        for location, target in [('path', 'path'), ('query', 'query'), ('header', 'headers')]:
+        for location, target, credentials in [('path', 'path', {}), ('query', 'query', auth_query), ('header', 'headers', auth_headers)]:
             fields = {p['name']: p.get('example', self.contract.example(p.get('schema', {})))
-                      for p in op.parameters if p['in'] == location and p.get('required')}
+                      for p in op.parameters if p['in'] == location and p.get('required')} | credentials
             if fields:
                 values[target] = fields
-        cookies = [p for p in op.parameters if p['in'] == 'cookie' and p.get('required')]
+        cookies = [f"{p['name']}={self.contract.example(p.get('schema', {}))}"
+                   for p in op.parameters if p['in'] == 'cookie' and p.get('required')] + auth_cookies
         if cookies:
-            values.setdefault('headers', {})['Cookie'] = '; '.join(f"{p['name']}={self.contract.example(p.get('schema', {}))}" for p in cookies)
+            values.setdefault('headers', {})['Cookie'] = '; '.join(cookies)
         content = self.contract.deref(op.spec.get('requestBody', {})).get('content', {})
         if content:
             media = 'application/json' if 'application/json' in content else next(iter(content))
@@ -330,7 +359,7 @@ class Registry:
                 values['body'] = value
                 if media != 'application/json':
                     values['content_type'] = media
-        if op.security:
+        if op.security and self.accounts:
             values['as_user'] = 'alice'
         args = [repr(op.method), repr(op.path)] + [f'{k}={v!r}' for k, v in values.items()]
         return 'client.call(' + ', '.join(args) + ')'
@@ -414,7 +443,7 @@ class Registry:
             if meta[key]:
                 help_[key] = meta[key] if isinstance(meta[key], str) else '\n'.join(meta[key])
         help_['returns'] = self._command_returns(meta, operations, limits)
-        help_['example'] = meta['example'] or self._command_example(name, parameters, needs_auth)
+        help_['example'] = meta['example'] or self._command_example(name, parameters, needs_auth and self.accounts)
         return help_
 
     def _command_returns(self, meta, operations, limits):

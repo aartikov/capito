@@ -3,7 +3,6 @@ import json
 import re
 from types import SimpleNamespace
 from urllib.parse import urlsplit, parse_qsl, urljoin
-from http.cookies import SimpleCookie
 from jsonschema.validators import extend
 from openapi_core import OpenAPI, Config, V31RequestValidator, V31ResponseValidator
 from openapi_core.datatypes import RequestParameters
@@ -112,13 +111,14 @@ def error_details(error):
 
 def request_adapter(request, route):
     url = urlsplit(request.url)
-    cookies = SimpleCookie()
-    cookies.load(next((v for k, v in request.headers.items() if k.lower() == 'cookie'), ''))
+    # name=value pairs split as servers do; SimpleCookie drops the whole header at a character it dislikes.
+    cookie = next((v for k, v in request.headers.items() if k.lower() == 'cookie'), '')
+    cookies = [tuple(part.strip() for part in pair.split('=', 1)) for pair in cookie.split(';') if '=' in pair]
     return SimpleNamespace(
         host_url=f'{url.scheme}://{url.netloc}', path=url.path,
         full_url_pattern=f'{url.scheme}://{url.netloc}{route}', method=request.method.lower(),
         parameters=RequestParameters(query=MultiDict(parse_qsl(url.query, keep_blank_values=True)),
-                                     header=Headers(request.headers), cookie=MultiDict((k, v.value) for k, v in cookies.items())),
+                                     header=Headers(request.headers), cookie=MultiDict(cookies)),
         content_type=(request.content_type or '').lower(), body=request.body)
 
 

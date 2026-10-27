@@ -338,3 +338,45 @@ def test_operations_filter_by_text_and_kind_and_point_to_wrappers(tmp_path, make
                         "    client.items.transform(value, /, *, validate=False)", '    effects: Does not call a server.']
     with pytest.raises(ValueError, match="kind is 'command', 'api' or None"):
         c.operations(kind='schema')
+
+
+def secured_contract(tmp_path):
+    """One GET operation per way to authorize, plus one that also allows anonymous calls."""
+    path = schema(tmp_path)
+    data = json.loads(path.read_text())
+    data['components'] = {'securitySchemes': {
+        'bearer': {'type': 'http', 'scheme': 'bearer'}, 'basic': {'type': 'http', 'scheme': 'basic'},
+        'oauth': {'type': 'oauth2', 'flows': {}},
+        'headerKey': {'type': 'apiKey', 'in': 'header', 'name': 'x-goog-api-key'},
+        'queryKey': {'type': 'apiKey', 'in': 'query', 'name': 'key'},
+        'cookieKey': {'type': 'apiKey', 'in': 'cookie', 'name': 'sid'}}}
+    ok = {'200': {'description': 'ok'}}
+    data['paths'] = {f'/{route}': {'get': {'security': security, 'responses': ok}} for route, security in {
+        'bearer': [{'bearer': []}], 'basic': [{'basic': []}], 'oauth': [{'oauth': []}],
+        'header': [{'headerKey': []}, {'queryKey': []}], 'query': [{'queryKey': []}],
+        'cookie': [{'cookieKey': []}], 'open': [{'bearer': []}, {}]}.items()}
+    path.write_text(json.dumps(data))
+    return path
+
+
+@pytest.mark.filterwarnings('ignore:Unsupported scheme type')  # openapi-core does not check oauth2
+def test_without_accounts_examples_spell_out_the_credentials_the_contract_asks_for(tmp_path, make_client, respx_mock):
+    c = make_client(secured_contract(tmp_path), validate=True)
+    examples = {op.id: c.describe(op.id).example for op in c.operations(kind='api')}
+    assert examples == {
+        'api:GET /basic': "client.call('GET', '/basic', headers={'Authorization': 'Basic <credentials>'})",
+        'api:GET /bearer': "client.call('GET', '/bearer', headers={'Authorization': 'Bearer <token>'})",
+        'api:GET /cookie': "client.call('GET', '/cookie', headers={'Cookie': 'sid=<api key>'})",
+        'api:GET /header': "client.call('GET', '/header', headers={'x-goog-api-key': '<api key>'})",  # the first way
+        'api:GET /oauth': "client.call('GET', '/oauth', headers={'Authorization': 'Bearer <token>'})",
+        'api:GET /open': "client.call('GET', '/open')",  # anonymous calls are allowed
+        'api:GET /query': "client.call('GET', '/query', query={'key': '<api key>'})"}
+    respx_mock.route(host='api.test').respond(200)
+    for identifier, example in examples.items():
+        result = eval(example, {'client': c})  # the example runs as it is and satisfies the contract's security
+        assert result.validation['backend_api']['request']['status'] == 'valid', identifier
+
+
+def test_with_accounts_examples_sign_in_by_as_user(tmp_path, make_client):
+    c = make_client(secured_contract(tmp_path), client_class=AccountsClient)
+    assert c.describe('api:GET /header').example == "client.call('GET', '/header', as_user='alice')"
