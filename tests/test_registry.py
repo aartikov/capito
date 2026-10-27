@@ -463,6 +463,21 @@ def test_with_accounts_examples_sign_in_by_as_user(tmp_path, make_client):
     assert c.describe('api:GET /header').example == "client.call('GET', '/header', as_user='alice')"
 
 
+def test_with_accounts_an_authorization_parameter_signs_in_by_as_user_once(tmp_path, make_client):
+    c = make_client(varied_contract(tmp_path), client_class=AccountsClient)
+    assert c.describe('api:POST /headed').example == (
+        "client.call('POST', '/headed', headers={'X-Request-Id': 'example'}, multipart={'note': 'example'}, as_user='alice')")
+    assert c.describe('api:GET /guarded').example == "client.call('GET', '/guarded', as_user='alice')"
+
+    class Things:
+        @command('Upload a note', api=('api:POST /headed',), parameters={'form': body_param('api:POST /headed')})
+        def note(self, form, *, as_user=None, validate=None):
+            pass
+
+    c.core.registry.register('things', Things())
+    assert c.describe('command:things.note').example == "client.things.note(form={'note': 'example'}, as_user='alice')"
+
+
 def varied_contract(tmp_path):
     """Operations whose examples need typed headers and cookies, schema bounds, media examples and other body types."""
     path = schema(tmp_path)
@@ -510,6 +525,13 @@ def varied_contract(tmp_path):
             'caption': {'type': 'string'}, 'cover': {'type': 'string', 'format': 'binary'},
             'pages': {'type': 'array', 'items': {'type': 'string', 'format': 'binary'}}})})},
         '/blob': {'post': body('application/octet-stream', {'schema': {'type': 'string', 'format': 'binary'}})},
+        # Accept, Content-Type and Authorization parameters, which OpenAPI ignores; without security here.
+        '/headed': {'post': {**body('multipart/form-data', {'schema': obj({'note': {'type': 'string'}})}), 'parameters': [
+            {'in': 'header', 'name': name, 'required': True, 'schema': {'type': 'string'}}
+            for name in ('Content-Type', 'accept', 'AUTHORIZATION', 'X-Request-Id')]}},
+        # Authorization both as security and as a parameter, as generated contracts have it.
+        '/guarded': {'get': {'responses': ok, 'security': [{'bearer': []}], 'parameters': [
+            {'in': 'header', 'name': 'Authorization', 'required': True, 'schema': {'type': 'string'}}]}},
         '/unique': {'post': body('application/json', {'schema': obj({
             'tags': {'type': 'array', 'minItems': 3, 'uniqueItems': True, 'items': {'type': 'string', 'maxLength': 7}},
             'ids': {'type': 'array', 'minItems': 2, 'uniqueItems': True, 'items': {'type': 'string', 'format': 'uuid'}},
@@ -518,6 +540,7 @@ def varied_contract(tmp_path):
             'shares': {'type': 'array', 'minItems': 3, 'uniqueItems': True,
                        'items': {'type': 'number', 'maximum': 0.6, 'multipleOf': 0.1}}})})},
     }
+    data['components'] = {'securitySchemes': {'bearer': {'type': 'http', 'scheme': 'bearer'}}}
     path.write_text(json.dumps(data))
     return path
 
@@ -544,6 +567,13 @@ def test_help_examples_run_as_they_are_and_satisfy_the_contract(tmp_path, make_c
                                             "'cover': File('upload.bin'), 'pages': [File('upload.bin')]})")
     assert examples['api:POST /blob'] == (
         "client.call('POST', '/blob', raw=b'<application/octet-stream body>', content_type='application/octet-stream')")
+    # The card shows the header parameters as the contract has them; the example leaves the ignored ones out,
+    # and a required Authorization becomes the one placeholder of sign-in, once even beside security.
+    assert c.describe('api:POST /headed').request.splitlines()[:4] == [
+        'header Content-Type: string', 'header accept: string', 'header AUTHORIZATION: string', 'header X-Request-Id: string']
+    assert examples['api:POST /headed'] == ("client.call('POST', '/headed', headers={'X-Request-Id': 'example', "
+                                            "'Authorization': '<credentials>'}, multipart={'note': 'example'})")
+    assert examples['api:GET /guarded'] == "client.call('GET', '/guarded', headers={'Authorization': 'Bearer <token>'})"
     assert examples['api:GET /ranged'] == (
         "client.call('GET', '/ranged', query={'from': 1, 'box': '<box: an object, encode it by style spaceDelimited, explode false>'})")
 

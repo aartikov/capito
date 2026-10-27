@@ -13,6 +13,9 @@ RESULT_TYPES = {'http': 'Result', 'compound': 'CompoundResult', 'account': 'Acco
                 'accounts': 'list[Account]', 'session': 'Session', 'text': 'str', 'none': 'None'}
 # An operation of the help contract as commands name it: api:<METHOD> <route>.
 API_REFERENCE = re.compile(r'api:[A-Za-z]+ /\S*')
+# Header parameters OpenAPI says to ignore, as content, responses and security set these headers: help shows
+# them as the contract has them, examples leave them out; a required Authorization still marks that sign-in is needed.
+IGNORED_HEADERS = {'accept', 'content-type', 'authorization'}
 # Their meaning is the same for every command and is documented once in docs/usage.md.
 STANDARD_ARGUMENTS = ('as_user', 'validate')
 
@@ -385,13 +388,23 @@ class Registry:
             args.append("as_user='alice'")
         return f'client.{name}(' + ', '.join(args) + ')'
 
+    @staticmethod
+    def _asks_authorization(op):
+        """A required Authorization header parameter: OpenAPI ignores it, yet the operation clearly needs sign-in."""
+        return any(p['in'] == 'header' and p['name'].lower() == 'authorization' and p.get('required') for p in op.parameters)
+
+    def _needs_auth(self, op):
+        return bool(op.security) or self._asks_authorization(op)
+
     def _credentials(self, op):
         """Placeholders for the first way the contract allows to authorize op, as explicit arguments.
 
         Returns (headers, query, cookies); nothing when the operation also allows anonymous calls.
         """
         headers, query, cookies = {}, {}, []
-        if not op.security or not all(op.security):
+        if not op.security:  # a contract that asks for Authorization as a parameter rather than by security
+            return ({'Authorization': '<credentials>'} if self._asks_authorization(op) else {}), query, cookies
+        if not all(op.security):
             return headers, query, cookies
         schemes = self.contract.document.get('components', {}).get('securitySchemes', {})
         for name in op.security[0]:
@@ -431,7 +444,8 @@ class Registry:
         values = {}
         for location, target, credentials in [('path', 'path', {}), ('query', 'query', auth_query), ('header', 'headers', auth_headers)]:
             fields = {p['name']: self._parameter_example(p, as_text=location == 'header')
-                      for p in op.parameters if p['in'] == location and p.get('required')} | credentials
+                      for p in op.parameters if p['in'] == location and p.get('required')
+                      and not (location == 'header' and p['name'].lower() in IGNORED_HEADERS)} | credentials
             if location == 'query':
                 fields = query_example([p for p in op.parameters if p['in'] == 'query'], fields)
             if fields:
@@ -455,7 +469,7 @@ class Registry:
                 values['raw'] = f'<{kind} body>'.encode()
             if media != 'application/json' and 'multipart' not in values:
                 values['content_type'] = media
-        if op.security and self.accounts:
+        if self._needs_auth(op) and self.accounts:
             values['as_user'] = 'alice'
         args = [repr(op.method), repr(op.path)] + [f'{k}={v!r}' for k, v in values.items()]
         return 'client.call(' + ', '.join(args) + ')'
@@ -522,7 +536,7 @@ class Registry:
         name = identifier.removeprefix('command:')
         parameters = [self._parameter(p, meta['parameters']) for p in sig.parameters.values()]
         operations = [op for op in map(self.operation, meta['api']) if op]
-        needs_auth = any(op.security for op in operations)
+        needs_auth = any(self._needs_auth(op) for op in operations)
 
         named, lines, blocks = {}, [f'client.{name}{sig}'], []
         for row in parameters:
