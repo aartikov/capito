@@ -40,6 +40,6 @@ python3 -m venv .venv
 
 ## Checks
 
-- `.venv/bin/python -m pytest -q`. Tests follow modules: `tests/test_<module>.py` for `capito/<module>.py`; shared parts are `tests/helpers.py` and the fixtures in `tests/conftest.py`. respx (`respx_mock`) replaces the network; a request without a route fails the test, and a real server is allowed only on loopback through `pass_through()`.
+- `.venv/bin/python -m pytest -q`. On GitHub, `.github/workflows/test.yml` runs them on every push to `main` and pull request, on macOS and Linux with Python 3.12 and 3.14; `publish.yml` runs the same workflow before a release. Tests follow modules: `tests/test_<module>.py` for `capito/<module>.py`; shared parts are `tests/helpers.py` and the fixtures in `tests/conftest.py`. respx (`respx_mock`) replaces the network; a request without a route fails the test, and a real server is allowed only on loopback through `pass_through()`.
 - Write a test for new behavior from an independently stated expectation, not by repeating the implementation.
 - Do not leave one-off scripts or intermediate files in the repository.
