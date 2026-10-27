@@ -61,6 +61,36 @@ def test_schema_text_is_compact_and_defines_named_objects_once(tmp_path):
     assert c.schema_text({'type': 'object', 'additionalProperties': {'type': 'string'}}) == 'dict[string, string]'
 
 
+def test_oas30_nullable_reads_as_null_like_a_null_type(tmp_path):
+    c = contract(tmp_path)
+    c.document['components']['schemas'] |= {
+        'Owner': {'type': 'object', 'properties': {'id': {'type': 'string'}}},
+        'Note': {'type': 'object', 'nullable': True, 'properties': {'text': {'type': 'string'}}},
+        'Item': {'type': 'object', 'required': ['endedAt'], 'properties': {
+            'endedAt': {'type': 'string', 'format': 'date-time', 'nullable': True},
+            'startedAt': {'type': 'string', 'format': 'date-time', 'nullable': False},
+            'owner': {'allOf': [{'$ref': '#/components/schemas/Owner'}], 'nullable': True},
+            'note': {'$ref': '#/components/schemas/Note'},
+            'tags': {'type': 'array', 'items': {'type': 'string'}, 'nullable': True}}}}
+    assert c.schema_text({'$ref': '#/components/schemas/Item'}) == (
+        'Item\n'
+        'Item = {\n'
+        '  endedAt: date-time | null\n'
+        '  startedAt?: date-time\n'
+        '  owner?: Owner | null\n'
+        '  note?: Note | null\n'
+        '  tags?: string[] | null\n'
+        '}\n'
+        'Owner = {\n'
+        '  id?: string\n'
+        '}\n'
+        'Note = {\n'
+        '  text?: string\n'
+        '} | null')
+    # past the depth limit the name keeps the mark too
+    assert '  note?: Note | null' in c.schema_text({'$ref': '#/components/schemas/Item'}, depth=1).splitlines()
+
+
 @pytest.mark.parametrize('value,encoded', [
     ('b c', 'q=b+c'), (False, 'q=false'), (3, 'q=3'), ([1, 2], 'q=1&q=2'), (('a', True), 'q=a&q=true'),
 ])

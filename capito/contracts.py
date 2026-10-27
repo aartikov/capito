@@ -141,24 +141,26 @@ class Contract:
     def _notation(self, schema, named, indent, level=0, limits=None):
         limits = limits or {'depth': None, 'items': None}
         ref = schema.get('$ref', '') if isinstance(schema, dict) else ''
+        # OAS 3.0 allows null by `nullable: true`, OAS 3.1 by a 'null' type; both read `T | null`.
+        null = ' | null' if isinstance(schema, dict) and self.deref(schema).get('nullable') is True else ''
         if ref.startswith('#/components/schemas/'):
             target = self.deref(schema)
             if any(k in target for k in ('properties', 'allOf', 'oneOf', 'anyOf')):
                 name = ref.rsplit('/', 1)[1]
                 if limits['depth'] is not None and level >= limits['depth']:
-                    return f'{name}\x00{name}\x00'  # finish() decides on ↓K once the whole block is known
+                    return f'{name}\x00{name}\x00{null}'  # finish() decides on ↓K once the whole block is known
                 defined = named.get(name)
                 if defined is None or (limits['depth'] is not None and level < defined[0]):
                     # First or shallower occurrence: (re)define from here; a recursive reference prints the name.
                     named[name] = (level, name)
                     named[name] = (level, self._notation(target, named, 0, level, limits))
-                return name
+                return name + null
         schema = self.deref(schema)
         for key, sep in (('oneOf', ' | '), ('anyOf', ' | '), ('allOf', ' & ')):
             if key in schema:
-                return sep.join(self._notation(s, named, indent, level, limits) for s in schema[key])
+                return sep.join(self._notation(s, named, indent, level, limits) for s in schema[key]) + null
         typ = schema.get('type')
-        nullable = isinstance(typ, list) and 'null' in typ
+        nullable = isinstance(typ, list) and 'null' in typ or bool(null)
         if isinstance(typ, list):
             typ = next((t for t in typ if t != 'null'), 'null')
         if 'const' in schema:
