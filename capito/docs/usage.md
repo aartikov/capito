@@ -326,7 +326,7 @@ print(r.view("body.status", "body.endedAt", format="json"))
 # {"body": {"status": "IN_PROGRESS", "endedAt": null}}
 ```
 
-`view` values are masked by the project's policy (fields, headers and query parameters with tokens, passwords, secrets and API keys, authorization headers and cookies, `Bearer …` and JWTs in text; the effective rules: `print(client.core.secrets)`) and by values commands marked as secret. Personal data such as phone numbers and names is not anonymized.
+`view` values are masked by the project's policy (fields, headers and query parameters with tokens, passwords, secrets and API keys, authorization headers and cookies, `Bearer …` and JWTs in text; the effective rules: `print(client.core.secrets)`) and by values commands marked as secret. Personal data such as phone numbers and names is not anonymized. Keys of objects are shown as they are: the policy hides values, not keys. An object keyed by secrets, such as a map of session IDs, is not for `view()`: read it from `r.body` in code and print only what is safe.
 
 | Object | `x.view()`, printed by `print(x)` | More |
 | --- | --- | --- |
