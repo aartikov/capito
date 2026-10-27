@@ -10,6 +10,37 @@ from . import view as views
 REDACTED = '<redacted>'
 # A query parameter inside any text: ?name=value or &name=value.
 QUERY_PARAMETER = re.compile(r'(?<=[?&])([^=&#\s"\'<>]+)=([^&#\s"\'<>]*)')
+# A JSON key inside any text, e.g. a JSON body that did not parse; its value is found by json_value_end().
+JSON_KEY = re.compile(r'"((?:[^"\\]|\\.)*)"\s*:\s*')
+
+
+def json_value_end(text, start):
+    """Where the JSON value at text[start] ends: a string, an object or array, or a bare value; a cut-off one runs to the end."""
+    depth, in_string, escaped = 0, False, False
+    for i in range(start, len(text)):
+        char = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == '"':
+                in_string = False
+                if depth == 0:
+                    return i + 1
+        elif char == '"':
+            in_string = True
+        elif char in '{[':
+            depth += 1
+        elif char in '}]':
+            if depth == 0:
+                return i
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        elif depth == 0 and (char == ',' or char.isspace()):
+            return i
+    return len(text)
 
 
 def normalized_key(key):
@@ -62,7 +93,19 @@ class Secrets:
             value = value.replace(secret, REDACTED)
         for rule in self.values:
             value = rule.sub(REDACTED, value)
+        value = self._json_pairs(value)
         return QUERY_PARAMETER.sub(lambda m: f'{m[1]}={REDACTED}' if m[2] and self.hides(unquote(m[1])) else m[0], value)
+
+    def _json_pairs(self, text):
+        """Text with the value of every hidden "key": value pair cut out, as in a parsed body."""
+        parts, position = [], 0
+        while found := JSON_KEY.search(text, position):
+            parts.append(text[position:found.end()])
+            position = found.end()
+            if self.hides(found[1]) and position < len(text):
+                parts.append(REDACTED)
+                position = json_value_end(text, position)
+        return ''.join(parts) + text[position:]
 
     def redact(self, value, values=(), key=''):
         """A masked copy; objects that render themselves are left to their own policy."""

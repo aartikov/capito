@@ -81,6 +81,18 @@ def test_core_preset_hides_common_credentials_and_keeps_counters():
 
 
 
+def test_hidden_keys_hide_their_values_in_json_text_that_did_not_parse():
+    cut_off = ('{"access_token": "opaque-a1", "user": {"name": "alice", "password": 1234}, '
+               '"tokens": {"refresh": "opaque-t1", "kind": ["x"]}, "note": "a \\"quoted\\" word", '
+               '"client_secret": "opaque-\\"s1\\"", "expires_in": 3600, "refresh_token": "opaque-r1')
+    result = Result(policy=Secrets.http(), success=False, status=200, body=cut_off, errors=['Invalid JSON response'])
+    assert json.loads(result.view('body', format='json'))['body'] == (
+        '{"access_token": <redacted>, "user": {"name": "alice", "password": <redacted>}, '
+        '"tokens": <redacted>, "note": "a \\"quoted\\" word", '
+        '"client_secret": <redacted>, "expires_in": 3600, "refresh_token": <redacted>')
+    assert 'opaque' not in everything(result) and '1234' not in everything(result)
+
+
 def test_api_keys_are_hidden_under_vendor_names_and_a_plain_key_only_when_declared():
     fields = dict(request={'url': 'http://x/items?key=k&page=2', 'headers': {'x-goog-api-key': 'g', 'X-RapidAPI-Key': 'r'}},
                   body={'googleApiKey': 'b'})
