@@ -8,6 +8,7 @@ from openapi_core import OpenAPI, Config, V31RequestValidator, V31ResponseValida
 from openapi_core.datatypes import RequestParameters
 from openapi_core.deserializing.exceptions import DeserializeError
 from openapi_core.deserializing.media_types.exceptions import MediaTypeDeserializeError
+from openapi_core.deserializing.media_types.util import json_loads
 from openapi_core.templating.security.exceptions import SecurityNotFound
 from openapi_core.validation.request.exceptions import MissingParameterError, ParameterValidationError, SecurityValidationError
 from openapi_core.validation.schemas.factories import DialectSchemaValidatorsFactory
@@ -109,6 +110,18 @@ def error_details(error):
     return found | {'message': str(error)[:500]}
 
 
+def content_types(value):
+    """Every media type named in a `content` map anywhere in the document."""
+    if isinstance(value, dict):
+        if isinstance(value.get('content'), dict):
+            yield from value['content']
+        for child in value.values():
+            yield from content_types(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from content_types(child)
+
+
 def request_adapter(request, route):
     url = urlsplit(request.url)
     # name=value pairs split as servers do; SimpleCookie drops the whole header at a character it dislikes.
@@ -144,7 +157,11 @@ class Validator:
                 binary = {}
                 if str(self.contract.document.get('openapi', '')).startswith('3.1'):
                     binary = dict(request_validator_cls=BinaryRequestValidator, response_validator_cls=BinaryResponseValidator)
-                self.api = OpenAPI.from_dict(self.contract.document, config=Config(server_base_url=self.base_url, **binary))
+                # openapi-core reads only application/json and application/vnd.api+json as JSON; other +json types
+                # were checked as raw bytes, so every body of theirs was invalid.
+                json_types = {media: json_loads for media in content_types(self.contract.document) if media.endswith('+json')}
+                self.api = OpenAPI.from_dict(self.contract.document, config=Config(
+                    server_base_url=self.base_url, extra_media_type_deserializers=json_types, **binary))
             except Exception as exc:
                 self.error = f'{type(exc).__name__}: {str(exc)[:500]}'
 

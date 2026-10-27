@@ -4,6 +4,7 @@ import inspect
 import json
 
 from .files import File
+from .transport import media_type, scalar as text_value
 from .view import ALL, UNSET, ViewList, cap, scalar
 
 
@@ -332,17 +333,32 @@ class Registry:
                 headers['Authorization'] = 'Bearer <token>'
         return headers, query, cookies
 
+    def _parameter_example(self, p, *, as_text):
+        """The parameter's example value; a header or cookie carries it as text."""
+        value = p.get('example', self.contract.example(p.get('schema', {})))
+        return text_value(value) if as_text else value
+
+    def _media_example(self, media, schema):
+        """The example given for the media type, else one built from its schema."""
+        if 'example' in media:
+            return media['example']
+        for example in media.get('examples', {}).values():
+            example = self.contract.deref(example)
+            if 'value' in example:  # an externalValue is a link, not a value
+                return example['value']
+        return self.contract.example(schema)
+
     def _raw_example(self, op):
         # With accounts the example signs in by as_user; without them as_user is an error, so the
         # credentials the contract asks for are spelled out with placeholders.
         auth_headers, auth_query, auth_cookies = ({}, {}, []) if self.accounts else self._credentials(op)
         values = {}
         for location, target, credentials in [('path', 'path', {}), ('query', 'query', auth_query), ('header', 'headers', auth_headers)]:
-            fields = {p['name']: p.get('example', self.contract.example(p.get('schema', {})))
+            fields = {p['name']: self._parameter_example(p, as_text=location == 'header')
                       for p in op.parameters if p['in'] == location and p.get('required')} | credentials
             if fields:
                 values[target] = fields
-        cookies = [f"{p['name']}={self.contract.example(p.get('schema', {}))}"
+        cookies = [f"{p['name']}={self._parameter_example(p, as_text=True)}"
                    for p in op.parameters if p['in'] == 'cookie' and p.get('required')] + auth_cookies
         if cookies:
             values.setdefault('headers', {})['Cookie'] = '; '.join(cookies)
@@ -350,15 +366,19 @@ class Registry:
         if content:
             media = 'application/json' if 'application/json' in content else next(iter(content))
             schema = self.contract.expanded(content[media].get('schema', {}))
-            value = self.contract.example(schema)
-            if media == 'multipart/form-data' and isinstance(value, dict):
+            value = self._media_example(content[media], schema)
+            kind = media_type(media)
+            if kind == 'multipart/form-data' and isinstance(value, dict):
                 properties = schema.get('properties', {})
                 values['multipart'] = {k: File('upload.bin') if properties.get(k, {}).get('format') == 'binary' else v
                                        for k, v in value.items()}
-            else:
+            elif (kind == 'application/json' or kind.endswith('+json') or isinstance(value, str)
+                  or (kind == 'application/x-www-form-urlencoded' and isinstance(value, dict))):
                 values['body'] = value
-                if media != 'application/json':
-                    values['content_type'] = media
+            else:  # call() encodes JSON, forms and text only; any other body is ready bytes
+                values['raw'] = f'<{kind} body>'.encode()
+            if media != 'application/json' and 'multipart' not in values:
+                values['content_type'] = media
         if op.security and self.accounts:
             values['as_user'] = 'alice'
         args = [repr(op.method), repr(op.path)] + [f'{k}={v!r}' for k, v in values.items()]

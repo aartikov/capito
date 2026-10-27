@@ -219,3 +219,19 @@ def test_a_cookie_value_with_characters_simplecookie_rejects_is_still_seen(tmp_p
     seen = c.call('GET', '/things', headers={'Cookie': 'theme=dark; sid=<a value>'}).validation['backend_api']['request']
     missing = c.call('GET', '/things', headers={'Cookie': 'theme=dark'}).validation['backend_api']['request']
     assert seen['status'] == 'valid' and missing['status'] == 'invalid'
+
+
+def test_bodies_of_any_json_type_are_checked_as_json(tmp_path, make_client):
+    path = schema(tmp_path)
+    data = json.loads(path.read_text())
+    thing = {'type': 'object', 'required': ['id'], 'properties': {'id': {'type': 'integer'}}}
+    data['paths']['/things']['post'] = {
+        'requestBody': {'required': True, 'content': {'application/vnd.test+json': {'schema': thing}}},
+        'responses': {'200': {'description': 'ok', 'content': {'application/problem+json': {'schema': thing}}}}}
+    path.write_text(json.dumps(data))
+    reply = lambda body: lambda request: httpx.Response(200, headers={'Content-Type': 'application/problem+json'}, json=body)
+    c = make_client(path, replies=[reply({'id': 1}), reply({'id': 'x'})], validate=True)
+    good = c.call('POST', '/things', body={'id': 1}, content_type='application/vnd.test+json').validation['backend_api']
+    bad = c.call('POST', '/things', body={'id': 'x'}, content_type='application/vnd.test+json').validation['backend_api']
+    assert good['request']['status'] == good['response']['status'] == 'valid'
+    assert bad['request']['status'] == bad['response']['status'] == 'invalid'

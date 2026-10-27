@@ -380,3 +380,46 @@ def test_without_accounts_examples_spell_out_the_credentials_the_contract_asks_f
 def test_with_accounts_examples_sign_in_by_as_user(tmp_path, make_client):
     c = make_client(secured_contract(tmp_path), client_class=AccountsClient)
     assert c.describe('api:GET /header').example == "client.call('GET', '/header', as_user='alice')"
+
+
+def varied_contract(tmp_path):
+    """Operations whose examples need typed headers and cookies, schema bounds, media examples and other body types."""
+    path = schema(tmp_path)
+    data = json.loads(path.read_text())
+    ok = {'200': {'description': 'ok'}}
+    obj = lambda properties: {'type': 'object', 'required': list(properties), 'properties': properties}
+    body = lambda media, value: {'requestBody': {'required': True, 'content': {media: value}}, 'responses': ok}
+    data['paths'] = {
+        '/typed': {'get': {'responses': ok, 'parameters': [
+            {'in': 'header', 'name': 'X-Page', 'required': True, 'schema': {'type': 'integer'}},
+            {'in': 'header', 'name': 'X-Dry-Run', 'required': True, 'schema': {'type': 'boolean'}},
+            {'in': 'cookie', 'name': 'step', 'required': True, 'schema': {'type': 'integer', 'minimum': 2}},
+            {'in': 'query', 'name': 'limit', 'required': True, 'schema': {'type': 'integer', 'minimum': 5, 'maximum': 50}},
+            {'in': 'query', 'name': 'share', 'required': True, 'schema': {'type': 'number', 'exclusiveMinimum': 0, 'maximum': 1}}]}},
+        '/bounded': {'post': body('application/json', {'schema': obj({
+            'name': {'type': 'string', 'minLength': 10}, 'short': {'type': 'string', 'maxLength': 3},
+            'count': {'type': 'integer', 'exclusiveMinimum': 1}, 'size': {'type': 'integer', 'minimum': 7, 'multipleOf': 5},
+            'below': {'type': 'integer', 'maximum': -3}, 'tags': {'type': 'array', 'minItems': 2, 'items': {'type': 'string'}},
+            'email': {'type': 'string', 'format': 'email', 'minLength': 3}})})},
+        '/given': {'post': body('application/json', {'schema': obj({'name': {'type': 'string', 'pattern': '^[a-z]+$'}}),
+                                                     'examples': {'first': {'value': {'name': 'given'}}}})},
+        '/vendor': {'post': body('application/vnd.test+json', {'schema': obj({'id': {'type': 'integer'}})})},
+        '/text': {'post': body('text/plain', {'schema': {'type': 'string'}})},
+        '/xml': {'post': body('application/xml', {'schema': obj({'text': {'type': 'string'}})})},
+        '/pattern': {'post': body('application/json', {'schema': obj({'code': {'type': 'string', 'pattern': '^[A-Z]{3}$'}})})},
+    }
+    path.write_text(json.dumps(data))
+    return path
+
+
+def test_help_examples_run_as_they_are_and_satisfy_the_contract(tmp_path, make_client, respx_mock):
+    c = make_client(varied_contract(tmp_path), validate=True)
+    respx_mock.route(host='api.test').respond(200)
+    examples = {op.id: c.describe(op.id).example for op in c.operations(kind='api')}
+    statuses = {identifier: eval(example, {'client': c}).validation['backend_api']['request']['status']
+                for identifier, example in examples.items()}  # no example raises
+    assert {k: v for k, v in statuses.items() if v != 'valid'} == {'api:POST /pattern': 'invalid', 'api:POST /xml': 'invalid'}
+    # What capito cannot build is a visible placeholder, not a value that looks real.
+    assert examples['api:POST /pattern'] == "client.call('POST', '/pattern', body={'code': '<pattern ^[A-Z]{3}$>'})"
+    assert examples['api:POST /xml'] == "client.call('POST', '/xml', raw=b'<application/xml body>', content_type='application/xml')"
+    assert "body={'name': 'given'}" in examples['api:POST /given']  # the contract's own example comes first

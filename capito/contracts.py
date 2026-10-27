@@ -11,6 +11,9 @@ import yaml
 from .view import keys_preview, remaining
 
 METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
+FORMAT_EXAMPLES = {"uuid": "00000000-0000-4000-8000-000000000001", "date": "1995-01-01",
+                   "date-time": "2026-10-14T10:00:00Z", "uri": "https://example.com/test",
+                   "email": "test@example.com", "binary": "@image.png"}
 # A name past the depth limit: resolved by finish() into '' when the block defines it, else ' ↓K'.
 UNDEFINED = re.compile('\x00([^\x00]+)\x00')
 
@@ -220,12 +223,18 @@ class Contract:
         return max(parts, default=0)
 
     def example(self, schema, depth=0):
+        """A value for help examples: the contract's own example if any, else one that satisfies the schema's bounds.
+
+        A string with a pattern and no example of its own is a placeholder <pattern …>: a pattern cannot be satisfied in general.
+        """
         if depth > 8:
             return None
         schema = self.deref(schema)
         for key in ("example", "default", "const"):
             if key in schema:
                 return schema[key]
+        if schema.get("examples"):
+            return schema["examples"][0]
         if "enum" in schema:
             return schema["enum"][0]
         if "allOf" in schema:
@@ -241,14 +250,40 @@ class Contract:
             return {k: self.example(v, depth + 1) for k, v in schema.get("properties", {}).items()
                     if k in schema.get("required", schema.get("properties", {}))}
         if typ == "array":
-            return [self.example(schema.get("items", {}), depth + 1)]
+            count = schema.get("minItems", 1)
+            count = count if "maxItems" not in schema else min(count, schema["maxItems"])
+            return [self.example(schema.get("items", {}), depth + 1)] * count
         if typ in ("integer", "number"):
-            return schema.get("minimum", 1)
+            return number_example(schema, typ)
         if typ == "boolean":
             return True
-        return {"uuid": "00000000-0000-4000-8000-000000000001", "date": "1995-01-01",
-                "date-time": "2026-10-14T10:00:00Z", "uri": "https://example.com/test",
-                "email": "test@example.com", "binary": "@image.png"}.get(schema.get("format"), "example")
+        if schema.get("format") in FORMAT_EXAMPLES:
+            return FORMAT_EXAMPLES[schema["format"]]
+        if "pattern" in schema:
+            return f"<pattern {schema['pattern']}>"
+        return "example".ljust(schema.get("minLength", 0), "x")[:schema.get("maxLength")]
+
+
+def number_example(schema, typ):
+    """1, or the nearest value within the bounds, rounded up to multipleOf; OAS 3.0 boolean exclusive bounds included."""
+    low, high = schema.get("minimum"), schema.get("maximum")
+    exclusive_low, exclusive_high = schema.get("exclusiveMinimum"), schema.get("exclusiveMaximum")
+    step = 1 if typ == "integer" else 0.5
+    if exclusive_low is True and low is not None:
+        low = low + step
+    elif not isinstance(exclusive_low, bool) and exclusive_low is not None:
+        low = exclusive_low + step if low is None else max(low, exclusive_low + step)
+    if exclusive_high is True and high is not None:
+        high = high - step
+    elif not isinstance(exclusive_high, bool) and exclusive_high is not None:
+        high = exclusive_high - step if high is None else min(high, exclusive_high - step)
+    value = 1 if low is None else low
+    if high is not None and value > high:
+        value = high
+    if schema.get("multipleOf"):
+        multiple = schema["multipleOf"]
+        value = -(-value // multiple) * multiple
+    return int(value) if typ == "integer" else value
 
 
 class ContractSource:
