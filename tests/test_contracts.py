@@ -91,6 +91,15 @@ def test_oas30_nullable_reads_as_null_like_a_null_type(tmp_path):
     assert '  note?: Note | null' in c.schema_text({'$ref': '#/components/schemas/Item'}, depth=1).splitlines()
 
 
+@pytest.mark.parametrize('enum, text', [
+    ([True, False], 'true|false'),
+    ([1, 2.5, 'a', None], '1|2.5|a | null'),
+    (['DRAFT', 'ACTIVE'], 'DRAFT|ACTIVE'),
+])
+def test_enum_values_read_as_json(tmp_path, enum, text):
+    assert contract(tmp_path).schema_text({'enum': enum}) == text
+
+
 @pytest.mark.parametrize('value,encoded', [
     ('b c', 'q=b+c'), (False, 'q=false'), (3, 'q=3'), ([1, 2], 'q=1&q=2'), (('a', True), 'q=a&q=true'),
 ])

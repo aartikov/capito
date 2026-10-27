@@ -167,7 +167,8 @@ class Contract:
             text = json.dumps(schema['const'], ensure_ascii=False)
         elif 'enum' in schema:
             nullable = nullable or None in schema['enum']
-            values = [str(v) for v in schema['enum'] if v is not None]
+            # Values as JSON, the way they are sent (true, 2.5); strings stay bare: DRAFT|ACTIVE.
+            values = [v if isinstance(v, str) else json.dumps(v, ensure_ascii=False) for v in schema['enum'] if v is not None]
             shown = values if limits['items'] is None else values[:limits['items']]
             text = '|'.join(shown) + (f"|…+{len(values) - len(shown)} (items={limits['items']})" if len(shown) < len(values) else '')
         elif schema.get('properties') and limits['depth'] is not None and level >= limits['depth']:
