@@ -238,6 +238,9 @@ class Client:
     def _build_request(self, method, route, path, query, headers, body, multipart, raw, content_type):
         headers = dict(headers or {})
         declared = header(headers, 'content-type')
+        if multipart is not None and declared is not None:
+            raise ValueError('multipart sets its own Content-Type with the boundary; remove the Content-Type header '
+                             '(a form with another type goes as raw=)')
         if content_type is not None and declared is not None and content_type != declared:
             raise ValueError('content_type and the Content-Type header disagree; set one of them')
         # The type chooses the encoding whichever argument sets it, so both give the same bytes.

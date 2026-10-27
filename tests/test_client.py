@@ -205,3 +205,13 @@ def test_a_short_hidden_header_value_is_hidden_as_a_token_not_inside_other_text(
     assert re.match(r'401 GET /things · \d+\.\d\ds · Unexpected HTTP status: 401 · body \{error, retry\}$', str(result))
     assert json.loads(result.view('body', format='json'))['body'] == {'error': 'Invalid key <redacted>', 'retry': 11}
     assert json.loads(result.view('request', format='json'))['request']['headers'] == {'X-API-Key': '<redacted>'}
+
+
+@pytest.mark.parametrize('name', ['Content-Type', 'content-type'])
+def test_a_form_with_a_content_type_header_is_an_error_not_a_form_without_boundary(make_client, requests, name):
+    c = make_client(replies=[(200, {'id': 1})])
+    with pytest.raises(ValueError, match='multipart sets its own Content-Type'):
+        c.call('POST', '/things', multipart={'purpose': 'x'}, headers={name: 'multipart/form-data'})
+    assert requests() == []  # nothing was sent
+    c.call('POST', '/things', multipart={'purpose': 'x'})
+    assert re.fullmatch(r'multipart/form-data; boundary=\S+', requests()[0].headers['content-type'])

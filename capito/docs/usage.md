@@ -197,7 +197,7 @@ created = client.call("POST", "/items", body={"name": "Sample item"}, as_user="a
 | `as_user` | Local ID, alias or the value of the project's lookup field (for example a phone number); anonymous without it. Requires an `accounts` set |
 | `path`, `query` | Route template and query string: scalars and lists |
 | `body` | The body, encoded by its type: JSON without a type and for JSON types (`application/json; charset=utf-8`, `application/problem+json`); a dict as a form for `application/x-www-form-urlencoded`; a `str` as UTF-8 text for any other type. Anything else is a `TypeError`: encode it yourself and pass `raw` |
-| `multipart` | A `multipart/form-data` form: strings, numbers, bool and `File(...)`; a list repeats the part |
+| `multipart` | A `multipart/form-data` form: strings, numbers, bool and `File(...)`; a list repeats the part. The type with its boundary is set by `multipart` itself: `content_type` or a `Content-Type` header with it is a `ValueError` |
 | `raw` | Ready body bytes, for example broken JSON; the type is set by `content_type` |
 | `content_type` | Type of `body`/`raw`, sent as `Content-Type`. The same type in `headers` has the same effect; different types in both are a `ValueError` |
 | `headers` | Extra headers. An explicit `Authorization` replaces the account's authorization and disables refresh |
