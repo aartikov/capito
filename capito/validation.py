@@ -2,6 +2,7 @@
 import json
 import re
 import threading
+import warnings
 from types import SimpleNamespace
 from urllib.parse import urlsplit, parse_qsl, urljoin
 from jsonschema.validators import extend
@@ -18,6 +19,12 @@ from openapi_schema_validator.validators import OAS31_BASE_DIALECT_ID
 from werkzeug.datastructures import Headers, MultiDict
 
 from .transport import first
+
+
+# openapi-core does not check oauth2 and openIdConnect schemes and says so on stderr with every process that meets
+# one. The docs say it once instead. A filter for that message alone: catch_warnings() is not safe in parallel requests.
+warnings.filterwarnings('ignore', message='Unsupported scheme type', category=UserWarning,
+                        module=r'openapi_core\.security\.providers')
 
 
 # openapi-core decodes a binary form part or body to bytes. OAS 3.0 validation counts bytes as a string

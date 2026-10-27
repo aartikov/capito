@@ -423,7 +423,7 @@ validation:
 
 Other lines look like `owner missing 'name'`, `tags[1].name type`, `status enum`, `query.limit maximum`, `query missing 'limit'`.
 
-A request without authorization gives `req=invalid` (`security missing 'bearer'`) for an operation that requires it; this is expected in a negative check.
+A request without authorization gives `req=invalid` (`security missing 'bearer'`) for an operation that requires it; this is expected in a negative check. Only `apiKey` and `http` schemes are checked: a request passes an `oauth2` or `openIdConnect` requirement with or without authorization.
 
 ## 9. Pitfalls
 

@@ -1,5 +1,7 @@
 """validation.py: checking requests and responses against every configured contract."""
 import json
+import subprocess
+import sys
 import threading
 import time
 
@@ -329,3 +331,21 @@ def test_a_form_boundary_keeps_its_case_in_validation(tmp_path, make_client, pur
     result = c.call('POST', '/upload', raw=form, content_type='Multipart/Form-Data; boundary=ABCdef')
     assert result.validation['backend_api']['request']['status'] == status
     assert result.view('validation').splitlines()[-1] == line
+
+
+def test_an_oauth2_requirement_passes_without_a_warning_on_stderr(tmp_path):
+    backend = schema(tmp_path)
+    data = json.loads(backend.read_text())
+    data['components'] = {'securitySchemes': {'oauth': {'type': 'oauth2', 'flows': {'clientCredentials': {
+        'tokenUrl': 'https://auth.example.test/token', 'scopes': {}}}}}}
+    data['paths']['/things']['get']['security'] = [{'oauth': []}]
+    backend.write_text(json.dumps(data))
+    # A process of its own, as a script sees it: pytest shows every warning inside a test.
+    script = ('import sys\n'
+              'from capito.contracts import ContractSource\n'
+              'from capito.transport import Request\n'
+              'from capito.validation import Validator\n'
+              'validator = Validator(ContractSource("api", sys.argv[1]), "http://api.test")\n'
+              'print(validator.check(Request("GET", "http://api.test/things", {}), "/things", phase="request")["status"])\n')
+    done = subprocess.run([sys.executable, '-c', script, str(backend)], capture_output=True, text=True)
+    assert (done.stdout, done.stderr) == ('valid\n', '')  # no authorization: openapi-core does not check oauth2
