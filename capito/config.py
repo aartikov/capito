@@ -1,5 +1,6 @@
 """capito.toml: environments, contracts, local state and view limits. Paths resolve from the file, never the cwd."""
 from dataclasses import dataclass, field
+import json
 from pathlib import Path
 import re
 import sys
@@ -38,6 +39,33 @@ def contract_source(value, root):
         raise ValueError(f'Unsupported contract source {text!r}: use a local path or an http(s) URL')
     path = Path(text).expanduser()
     return (Path(root) / path).resolve() if not path.is_absolute() else path
+
+
+def shown(value):
+    """A value as the TOML file has it: true, 5, "x"."""
+    return json.dumps(value, default=str, ensure_ascii=False)
+
+
+def text(where, key, value):
+    """An optional string key of the file; a value of another type is an error naming the key."""
+    if value is not None and (not isinstance(value, str) or not value):
+        raise ValueError(f'{where} {key} must be text, got {shown(value)}')
+    return value
+
+
+def seconds(where, key, value, default):
+    """A timeout of the file: a number of seconds, not true or "30"."""
+    if value is None:
+        return float(default)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f'{where} {key} must be a number of seconds, got {shown(value)}')
+    return float(value)
+
+
+def table(where, value):
+    if not isinstance(value, dict):
+        raise ValueError(f'{where} must be a table, got {shown(value)}')
+    return value
 
 
 def view_limits(section):
@@ -107,18 +135,20 @@ class Config:
         unknown = set(data) - TOP_KEYS
         if unknown:
             raise ValueError(f'Unknown keys in {source.name}: {sorted(unknown)}')
-        name = environment or data.get('default_environment')
+        name = environment or text(source.name, 'default_environment', data.get('default_environment'))
         if not name or not re.fullmatch(r'[A-Za-z0-9_-]+', name):
             raise ValueError('Choose a valid environment in config or explicitly')
-        if name not in data.get('environments', {}):
+        environments = table('[environments]', data.get('environments', {}))
+        if name not in environments:
             raise ValueError(f'Unknown environment: {name}')
-        env = data['environments'][name]
+        where = f'[environments.{name}]'
+        env = table(where, environments[name])
         extra = set(env) - ENVIRONMENT_KEYS
         if extra:
-            raise ValueError(f'Unknown keys in [environments.{name}]: {sorted(extra)}')
-        url = str(env.get('base_url', '')).rstrip('/')
+            raise ValueError(f'Unknown keys in {where}: {sorted(extra)}')
+        url = (text(where, 'base_url', env.get('base_url')) or '').rstrip('/')
         parts = urlsplit(url)
-        if parts.scheme not in ('http', 'https') or not parts.netloc or parts.username or parts.query or parts.fragment:
+        if parts.scheme not in ('http', 'https') or not parts.netloc or '@' in parts.netloc or parts.query or parts.fragment:
             raise ValueError('base_url must be an HTTP(S) server URL without credentials/query/fragment')
         contracts = env.get('contracts')
         if not isinstance(contracts, dict) or not contracts:
@@ -132,7 +162,8 @@ class Config:
             raise ValueError("client must look like 'package.module:Client'")
         return cls(root=root, environment=name, base_url=url,
                    contracts={k: contract_source(v, root) for k, v in contracts.items()},
-                   help_contract=env.get('help_contract'), client=client,
-                   state_dir=(root / Path(state).expanduser()).resolve(), interface=env.get('interface'),
-                   timeout=float(env.get('timeout', 30)), connect_timeout=float(env.get('connect_timeout', 10)),
-                   view=view_limits(data.get('view')), path=source)
+                   help_contract=text(where, 'help_contract', env.get('help_contract')), client=client,
+                   state_dir=(root / Path(state).expanduser()).resolve(), interface=text(where, 'interface', env.get('interface')),
+                   timeout=seconds(where, 'timeout', env.get('timeout'), 30),
+                   connect_timeout=seconds(where, 'connect_timeout', env.get('connect_timeout'), 10),
+                   view=view_limits(table('[view]', data.get('view', {}))), path=source)

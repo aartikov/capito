@@ -83,7 +83,7 @@ depth = 0
 | `interface` | Name of the network interface connections go through, for example to bypass a VPN. macOS and Linux; connections are then IPv4 only. Not supported on Windows |
 | `[view]`, `[view.result\|help\|list\|account]` | Default view limits (section 6) |
 
-An unknown key or section is a load error: a typo does not pass silently.
+An unknown key or section is a load error, and so is a value of the wrong type (`timeout = true`, `interface = 5`): a typo does not pass silently.
 
 **A contract at an address** is downloaded on the first help or check with the same transport as requests (with `interface` and timeouts), without authorization, and kept in process memory. Every new process, including every CLI call, downloads it again. Download a spec that requires authorization to a file and give its path. External `$ref`s (to other files) are not supported: a contract is a single document.
 

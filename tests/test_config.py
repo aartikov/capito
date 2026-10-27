@@ -62,7 +62,7 @@ def test_contract_sources_are_paths_or_http_urls(tmp_path, source):
         Config.load(write(tmp_path, BASE + f'[environments.dev.contracts]\nmain = "{source}"\n'))
 
 
-@pytest.mark.parametrize('url', ['ftp://localhost', 'https://user:pass@example.test', 'https://example.test?q=1', 'https://example.test#fragment'])
+@pytest.mark.parametrize('url', ['ftp://localhost', 'https://user:pass@example.test', 'https://:pass@example.test', 'https://example.test?q=1', 'https://example.test#fragment'])
 def test_reject_invalid_server_origin(tmp_path, url):
     text = f'default_environment="dev"\n[environments.dev]\nbase_url="{url}"\n[environments.dev.contracts]\nmain="api.json"\n'
     with pytest.raises(ValueError):
@@ -108,3 +108,23 @@ def test_view_subsections_inherit_from_view_and_default_to_all(tmp_path):
 def test_view_typos_and_bad_values_are_errors(tmp_path, extra, message):
     with pytest.raises(ValueError, match=message):
         Config.load(write(tmp_path, BASE + '[environments.dev.contracts]\nmain = "api.json"\n' + extra))
+
+
+CONTRACTS = '[environments.dev.contracts]\nmain = "api.json"\n'
+
+
+@pytest.mark.parametrize('text, message', [
+    ('default_environment = 1\n[environments.dev]\nbase_url = "http://localhost"\n' + CONTRACTS,
+     'default_environment must be text, got 1'),
+    (BASE + 'timeout = true\n' + CONTRACTS, r'\[environments.dev\] timeout must be a number of seconds, got true'),
+    (BASE + 'connect_timeout = "10"\n' + CONTRACTS, r'connect_timeout must be a number of seconds, got "10"'),
+    (BASE + 'interface = 5\n' + CONTRACTS, r'\[environments.dev\] interface must be text, got 5'),
+    (BASE + 'help_contract = ["main"]\n' + CONTRACTS, r'help_contract must be text, got \["main"\]'),
+    ('default_environment = "dev"\n[environments.dev]\nbase_url = 8080\n' + CONTRACTS, 'base_url must be text, got 8080'),
+    ('default_environment = "dev"\nenvironments = "dev"\n', r'\[environments\] must be a table'),
+    ('default_environment = "dev"\n[environments]\ndev = "http://localhost"\n', r'\[environments.dev\] must be a table'),
+    ('view = 1\n' + BASE + CONTRACTS, r'\[view\] must be a table, got 1'),
+])
+def test_a_value_of_the_wrong_type_is_an_error_naming_its_key(tmp_path, text, message):
+    with pytest.raises(ValueError, match=message):
+        Config.load(write(tmp_path, text))

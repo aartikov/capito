@@ -38,3 +38,11 @@ def test_docs_need_no_configuration(tmp_path, monkeypatch, capsys):
 def test_module_runs_as_a_program(tmp_path):
     done = subprocess.run([sys.executable, '-m', 'capito', 'docs'], capture_output=True, text=True, cwd=tmp_path)
     assert done.returncode == 0 and 'extending' in done.stdout
+
+
+def test_a_value_of_the_wrong_type_in_the_config_is_exit_code_2(tmp_path, monkeypatch, capsys):
+    (tmp_path / 'capito.toml').write_text('default_environment = 1\n[environments.dev]\nbase_url = "http://localhost"\n'
+                                          '[environments.dev.contracts]\nmain = "api.json"\n')
+    monkeypatch.chdir(tmp_path)
+    assert main(['operations']) == 2
+    assert 'default_environment must be text, got 1' in capsys.readouterr().err
