@@ -5,7 +5,7 @@ import json
 
 from .files import File
 from .transport import media_type, scalar as text_value
-from .view import ALL, UNSET, ViewList, cap, scalar
+from .view import ALL, UNSET, ViewList, cap, project, scalar
 
 
 RESULT_TYPES = {'http': 'Result', 'compound': 'CompoundResult', 'account': 'Account',
@@ -122,7 +122,14 @@ class Operation:
         self.command, self.signature, self.effects = command, signature, effects
         self._limits = limits
 
-    def view(self, *paths, depth=UNSET, width=UNSET):
+    def view(self, *paths, depth=UNSET, width=UNSET, format='text'):
+        if format == 'json':
+            fields = dict(id=self.id, kind=self.kind, summary=self.summary, command=self.command,
+                          signature=self.signature, effects=self.effects)
+            tree = {key: value for key, value in fields.items() if value is not None}
+            return json.dumps(project(tree, paths) if paths else tree, ensure_ascii=False, indent=2)
+        if format != 'text':
+            raise ValueError("format is 'text' or 'json'")
         o = self._limits.resolve(depth=depth, width=width)
         depth, width = o['depth'], o['width']
         line = f'{self.id}  {self.summary}' + (f'  → {self.command}' if self.command else '')

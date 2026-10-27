@@ -516,3 +516,20 @@ def test_help_examples_run_as_they_are_and_satisfy_the_contract(tmp_path, make_c
         "client.call('POST', '/blob', raw=b'<application/octet-stream body>', content_type='application/octet-stream')")
     assert examples['api:GET /ranged'] == (
         "client.call('GET', '/ranged', query={'from': 1, 'box': '<box: an object, encode it by style spaceDelimited, explode false>'})")
+
+
+def test_lists_have_a_json_view_like_every_object(make_client):
+    c = make_client(client_class=AccountsClient)
+    c.accounts.create('robot', identity={'kind': 'service'})
+    rows = json.loads(c.operations('things', kind='api').view(format='json'))
+    assert rows == [{'id': 'api:GET /things', 'kind': 'api', 'summary': 'GET /things'},
+                    {'id': 'api:POST /things', 'kind': 'api', 'summary': 'POST /things'}]
+    assert json.loads(c.operations('accounts.get').view(format='json')) == [{
+        'id': 'command:accounts.get', 'kind': 'command', 'summary': 'Read one local account without credentials',
+        'signature': 'client.accounts.get(selector)', 'effects': 'Reads a local record; no server requests, no session changes.'}]
+    assert json.loads(c.operations('things').view('id', format='json')) == [{'id': 'api:GET /things'}, {'id': 'api:POST /things'}]
+    accounts = json.loads(c.accounts.list().view(format='json'))
+    assert [(a['alias'], a['identity'], a['has_session']) for a in accounts] == [('robot', {'kind': 'service'}, False)]
+    assert c.operations('things').view().splitlines()[0].startswith('api:GET /things')  # text is as before
+    with pytest.raises(ValueError, match="'text' or 'json'"):
+        c.operations().view(format='yaml')

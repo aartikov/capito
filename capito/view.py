@@ -297,8 +297,13 @@ class ViewList(list):
         super().__init__(items)
         self.limits = limits
 
-    def view(self, *paths, depth=UNSET, width=UNSET, lines=UNSET):
+    def view(self, *paths, depth=UNSET, width=UNSET, lines=UNSET, format='text'):
         o = self.limits.resolve(depth=depth, width=width, lines=lines)
+        if format == 'json':  # an array of the elements' own JSON, without limits like any JSON view
+            return json.dumps([json.loads(item.view(*paths, format='json')) if hasattr(item, 'view') else str(item)
+                               for item in self], ensure_ascii=False, indent=2)
+        if format != 'text':
+            raise ValueError("format is 'text' or 'json'")
         rendered = [item.view(*paths, depth=shown(o['depth']), width=shown(o['width'])) if hasattr(item, 'view') else str(item)
                     for item in self]
         return '\n'.join(cap('\n'.join(rendered).splitlines(), o['lines'])) if rendered else '(empty)'

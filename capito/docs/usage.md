@@ -333,7 +333,7 @@ print(r.view("body.status", "body.endedAt", format="json"))
 | `Result` | summary line | `view("body")`, `view("validation")`, `view("request", depth=2)` |
 | `CompoundResult` | outcome, failed step, step validation, `data` with full IDs | `view("steps")` gives a line per step; `view("steps.publish.body")` |
 | `Account` | alias, fields from the project setting, `session=yes\|no` | `view("identity", "settings")` |
-| list (`operations()`, `accounts.list()`) | a line per element | `view(depth=1)`; paths apply to each element |
+| list (`operations()`, `accounts.list()`) | a line per element | `view(depth=1)`; paths apply to each element; `format="json"` is an array of the elements |
 | `describe()` card | card with the `[view.help]` limits | `view(depth=2)`, `view("call", "returns")` |
 
 ## 7. Recipes
