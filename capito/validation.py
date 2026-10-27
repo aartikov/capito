@@ -1,6 +1,7 @@
 """Adapters to openapi-core; no endpoint-specific validation or schema rewriting."""
 import json
 import re
+import threading
 from types import SimpleNamespace
 from urllib.parse import urlsplit, parse_qsl, urljoin
 from jsonschema.validators import extend
@@ -148,10 +149,13 @@ class Validator:
         self.base_url = base_url
         self.loaded = False
         self.error = None
+        self._guard = threading.Lock()
 
     def _load(self):
-        if not self.loaded:
-            self.loaded = True
+        # Requests run in parallel: the first ones wait until the validator is built or its error is known.
+        with self._guard:
+            if self.loaded:
+                return
             try:
                 self.contract = self.source.load()
                 binary = {}
@@ -164,6 +168,7 @@ class Validator:
                     server_base_url=self.base_url, extra_media_type_deserializers=json_types, **binary))
             except Exception as exc:
                 self.error = f'{type(exc).__name__}: {str(exc)[:500]}'
+            self.loaded = True
 
     def check(self, request, route, response=None, *, phase):
         self._load()

@@ -1,5 +1,7 @@
 """validation.py: checking requests and responses against every configured contract."""
 import json
+import threading
+import time
 
 import httpx
 import pytest
@@ -79,6 +81,36 @@ def test_validation_reuses_loaded_specs_and_does_not_change_transport_host(tmp_p
     second = c.call('POST', '/things', body={'id': 1})
     assert second.success and c.core._validators['backend_api'].api is validator
     assert all(str(r.url) == 'http://api.test/things' for r in requests())
+
+
+def test_parallel_first_calls_wait_for_the_validator_instead_of_failing(make_client, monkeypatch):
+    c = make_client(replies=[(200, {'id': 1})] * 8, validate=True)
+    source, loads = c.core._sources['backend_api'], []
+    read = source.load
+
+    def slow_load():  # reading a large contract takes seconds; other requests arrive meanwhile
+        loads.append(1)
+        time.sleep(0.2)
+        return read()
+
+    monkeypatch.setattr(source, 'load', slow_load)
+    start, results, failures = threading.Barrier(8), [], []
+
+    def work():
+        start.wait()
+        try:
+            results.append(c.call('GET', '/things'))
+        except Exception as exc:
+            failures.append(exc)
+
+    threads = [threading.Thread(target=work) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert failures == []
+    assert [r.validation['backend_api']['response']['status'] for r in results] == ['valid'] * 8
+    assert len(loads) == 1
 
 
 def test_issues_name_extra_and_missing_fields_without_values(tmp_path, make_client):
