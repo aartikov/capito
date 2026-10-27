@@ -295,3 +295,19 @@ def test_a_path_value_is_checked_as_given_not_url_encoded(tmp_path, make_client,
     result = c.call('GET', f'/users/{{{name}}}', path={name: value})
     expected = 'valid' if issue is None else f'request invalid: {issue}'
     assert result.view('validation').splitlines()[-1] == f'  backend_api: {expected}'
+
+
+def test_headers_httpx_adds_are_seen_by_validation_as_sent(tmp_path, make_client, requests):
+    backend = schema(tmp_path)
+    data = json.loads(backend.read_text())
+    data['components'] = {'securitySchemes': {'agent': {'type': 'apiKey', 'in': 'header', 'name': 'User-Agent'}}}
+    data['paths']['/things']['get']['security'] = [{'agent': []}]
+    data['paths']['/things']['get']['parameters'] = [{'name': 'Accept', 'in': 'header', 'required': True, 'schema': {'type': 'string'}}]
+    backend.write_text(json.dumps(data))
+    c = make_client(backend, replies=[(200, {'id': 1})] * 2, validate=True)
+    default = c.call('GET', '/things')  # httpx sends User-Agent and Accept of its own
+    assert default.validation['backend_api']['request'] == {'status': 'valid', 'errors': []}
+    assert requests()[0].headers['user-agent'].startswith('python-httpx/')
+    assert 'User-Agent' not in default.request['headers']  # the result shows what call() set, as documented
+    own = c.call('GET', '/things', headers={'user-agent': 'robot/1'})
+    assert own.validation['backend_api']['request']['status'] == 'valid' and requests()[1].headers['user-agent'] == 'robot/1'

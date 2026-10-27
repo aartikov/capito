@@ -1,6 +1,7 @@
 """The client. A project subclasses capito.Client and declares its parts as class attributes."""
 import codecs
 from copy import deepcopy
+from dataclasses import replace
 from importlib import import_module
 import json
 import re
@@ -239,8 +240,9 @@ class Client:
         if response.status not in range(200, 300):
             result.errors.append(f'Unexpected HTTP status: {response.status}')
         if enabled:
-            result.validation = {name: {'request': validator.check(request, route, phase='request'),
-                                           'response': validator.check(request, route, response, phase='response')}
+            sent = replace(request, headers=core.transport.sent_headers(request))  # checked as sent, httpx's headers included
+            result.validation = {name: {'request': validator.check(sent, route, phase='request'),
+                                           'response': validator.check(sent, route, response, phase='response')}
                                     for name, validator in core._validators.items()}
         result.sent_account = account if account and session is None and not supplied_auth else None
         result.success = not result.errors

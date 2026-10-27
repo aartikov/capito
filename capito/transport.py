@@ -119,6 +119,11 @@ class HttpxTransport:
                 headers[key] = value
         return Response(response.status_code, headers, response.content, time.monotonic() - start)
 
+    def sent_headers(self, request):
+        """The headers httpx sends with the request: its own (User-Agent, Accept…) unless the request sets them."""
+        own = {name.lower() for name in request.headers}
+        return {**{name: value for name, value in self._http().headers.items() if name.lower() not in own}, **request.headers}
+
     def close(self):
         with self._guard:
             if self._client is not None:
