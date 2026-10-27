@@ -85,7 +85,7 @@ depth = 0
 
 An unknown key or section is a load error, and so is a value of the wrong type (`timeout = true`, `interface = 5`): a typo does not pass silently.
 
-**A contract at an address** is downloaded on the first help or check with the same transport as requests (with `interface` and timeouts), without authorization, and kept in process memory. Every new process, including every CLI call, downloads it again. Download a spec that requires authorization to a file and give its path. External `$ref`s (to other files) are not supported: a contract is a single document.
+**A contract at an address** is downloaded on the first help or check with the same transport as requests (with `interface` and timeouts), without authorization, and kept in process memory. Every new process, including every CLI call, downloads it again. Redirects are not followed: for an address that redirects, the error names where it leads, and that address goes into the configuration. Download a spec that requires authorization to a file and give its path. External `$ref`s (to other files) are not supported: a contract is a single document.
 
 **Without a project.** If the API has no authorization or you are only exploring it from the spec, no project code is needed: an `capito.toml` without the `client` key, with an address and a contract, is enough.
 

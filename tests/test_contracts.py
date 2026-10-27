@@ -1,5 +1,6 @@
 """contracts.py: reading OpenAPI from a file or a URL, operations, schema notation."""
 import json
+import re
 
 import pytest
 
@@ -180,6 +181,18 @@ def test_failed_contract_download_is_reported(make_client, respx_mock):
     c = make_client('https://docs.example.test/openapi.json')
     with pytest.raises(ValueError, match='HTTP 404'):
         c.describe('api:GET /things')
+
+
+@pytest.mark.parametrize('location, target', [
+    ('https://raw.example.test/api/openapi.json', 'https://raw.example.test/api/openapi.json'),
+    ('/v2/openapi.json', 'https://docs.example.test/v2/openapi.json'),  # a relative Location, as servers send it
+])
+def test_a_redirected_contract_address_names_where_it_leads(make_client, respx_mock, location, target):
+    first = respx_mock.get('https://docs.example.test/openapi.json').respond(302, headers={'Location': location})
+    c = make_client('https://docs.example.test/openapi.json')
+    with pytest.raises(ValueError, match=f'HTTP 302 to {re.escape(target)}: use that address'):
+        c.operations()
+    assert first.call_count == 1  # not followed: the configured address stays the source
 
 
 def test_valid_json_is_read_as_json_even_where_yaml_disagrees():

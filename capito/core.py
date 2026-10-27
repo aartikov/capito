@@ -5,13 +5,14 @@ Kept apart from the project's command sets (client.<set>) so that new mechanisms
 from dataclasses import dataclass, field
 import threading
 from typing import Callable
+from urllib.parse import urljoin
 
 from .accounts import AccountStore, StaleSessionError
 from .auth import Auth
 from .contracts import ContractSource
 from .registry import Registry
 from .results import CompoundResult, Result, Secrets, error_from, strings
-from .transport import Request
+from .transport import Request, first
 from .validation import Validator
 
 
@@ -87,6 +88,10 @@ class CoreRuntime:
 
     def _fetch_contract(self, url):
         response = self.transport.send(Request('GET', url, {'Accept': 'application/yaml, application/json'}))
+        location = first(response.headers.get('location'))
+        if response.status in range(300, 400) and location:
+            # Redirects are not followed, so the configured address stays the source the fingerprint belongs to.
+            raise OSError(f'HTTP {response.status} to {urljoin(url, location)}: use that address')
         if response.error or response.status != 200:
             raise OSError(response.error or f'HTTP {response.status}')
         return response.content
