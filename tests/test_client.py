@@ -237,3 +237,17 @@ def test_scalars_and_lists_of_them_still_go_as_text(make_client, requests):
     c = make_client(replies=[(200, {'id': 1})])
     c.call('GET', '/things/{id}', path={'id': 7}, query={'on': True, 'share': 0.5, 'tag': ['a', 'b'], 'q': 'x y'})
     assert str(requests()[0].url) == 'http://api.test/things/7?on=true&share=0.5&tag=a&tag=b&q=x+y'
+
+
+@pytest.mark.parametrize('route', ['/things?limit=1', 'things', '/things#top', ''])
+def test_a_route_is_a_path_from_the_root_without_query(make_client, requests, route):
+    c = make_client(base_url='http://api.test/api')
+    with pytest.raises(ValueError, match='the query goes in query='):
+        c.call('GET', route, query={'page': 2})
+    assert requests() == []
+
+
+def test_a_route_goes_after_the_path_of_base_url(make_client, requests):
+    c = make_client(replies=[(200, {'id': 1})], base_url='http://api.test/api')
+    c.call('GET', '/things', query={'page': 2})
+    assert str(requests()[0].url) == 'http://api.test/api/things?page=2'

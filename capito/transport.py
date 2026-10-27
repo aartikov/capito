@@ -145,6 +145,8 @@ def plain(kind, name, value):
 
 def build_url(route, path, query):
     """Fill {name} templates and encode query; lists repeat the key, other shapes are explicit."""
+    if not isinstance(route, str) or not route.startswith("/") or any(c in route for c in "?#"):
+        raise ValueError(f"Route {route!r}: a path from / without ? or #, as in the contract; the query goes in query=")
     for name, value in path.items():
         route = route.replace("{" + name + "}", quote(plain("Path", name, value), safe=""))
     if "{" in route:

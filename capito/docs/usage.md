@@ -195,6 +195,7 @@ created = client.call("POST", "/items", body={"name": "Sample item"}, as_user="a
 | Argument | Purpose |
 | --- | --- |
 | `as_user` | Local ID, alias or the value of the project's lookup field (for example a phone number); anonymous without it. Requires an `accounts` set |
+| `route` | The path template after `base_url`, as in the contract: from `/`, without `?` and `#`; otherwise a `ValueError` |
 | `path`, `query` | Values of the route template and the query string: text, numbers, bool; a list in `query` repeats the key. `None`, an object or a nested list is a `TypeError`: leave out a key without a value |
 | `body` | The body, encoded by its type: JSON without a type and for JSON types (`application/json; charset=utf-8`, `application/problem+json`); a dict as a form for `application/x-www-form-urlencoded`; a `str` as UTF-8 text for any other type. Anything else is a `TypeError`: encode it yourself and pass `raw` |
 | `multipart` | A `multipart/form-data` form: strings, numbers, bool and `File(...)`; a list repeats the part. The type with its boundary is set by `multipart` itself: `content_type` or a `Content-Type` header with it is a `ValueError` |
@@ -215,7 +216,7 @@ r = client.call("POST", "/items/{itemId}/photos", path={"itemId": "item-1"}, as_
                 multipart={"caption": "Cover", "photo": File(b"not a jpeg", filename="cover.jpg", content_type="image/jpeg")})
 ```
 
-**Exception or result.** Usage errors are exceptions: an unfilled path template, `None` or an object in `path`, `query` or `multipart`, several kinds of body, an unreadable file, an unknown account, an extra command argument. HTTP failures and transport errors are in the result, with `success = False`.
+**Exception or result.** Usage errors are exceptions: a route with `?` or without a leading `/`, an unfilled path template, `None` or an object in `path`, `query` or `multipart`, several kinds of body, an unreadable file, an unknown account, an extra command argument. HTTP failures and transport errors are in the result, with `success = False`.
 
 ## 5. Result data
 
