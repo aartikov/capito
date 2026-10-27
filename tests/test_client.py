@@ -13,7 +13,7 @@ from helpers import schema
 def test_mutating_timeout_is_not_retried_even_with_a_session(make_robot, requests):
     c = make_robot([httpx.ReadTimeout('timeout')])
     result = c.call('POST', '/things', body={'id': 1}, as_user='robot')
-    assert not result.success and result.errors == ['ReadTimeout: timeout', 'Unexpected HTTP status: 0']
+    assert not result.success and result.errors == ['ReadTimeout: timeout']
     assert len(requests()) == 1
 
 
@@ -100,11 +100,14 @@ def test_multipart_is_exclusive_and_exported_without_content(tmp_path, make_clie
     assert 'secret-bytes' not in str(result)
 
 
-def test_header_line_marks_missing_response(tmp_path, make_client):
-    c = make_client(schema(tmp_path), replies=[httpx.ReadTimeout('timeout')])
+@pytest.mark.parametrize('failure, reason', [(httpx.ReadTimeout('timeout'), 'ReadTimeout: timeout'),
+                                             (httpx.ConnectError('refused'), 'ConnectError: refused')])
+def test_header_line_marks_missing_response(tmp_path, make_client, failure, reason):
+    c = make_client(schema(tmp_path), replies=[failure])
     result = c.call('POST', '/things', body={'id': 1})
-    assert result.status == 0 and str(result).startswith('— POST /things · ') and str(result).endswith(' · ReadTimeout: timeout')
-    assert result.error == {'code': None, 'message': 'ReadTimeout: timeout'}
+    assert result.status == 0 and str(result).startswith('— POST /things · ') and str(result).endswith(f' · {reason}')
+    assert result.errors == [reason]  # no response has no status to call unexpected
+    assert result.error == {'code': None, 'message': reason}
 
 
 def test_raw_invalid_json_and_binary_memory_only(make_client):

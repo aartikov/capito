@@ -248,7 +248,7 @@ class Client:
         if response.error:
             result.errors.append(response.error)
         decode(response, result)
-        if response.status not in range(200, 300):
+        if response.status and response.status not in range(200, 300):  # 0: no response, its reason is already there
             result.errors.append(f'Unexpected HTTP status: {response.status}')
         if enabled:
             sent = replace(request, headers=core.transport.sent_headers(request))  # checked as sent, httpx's headers included
