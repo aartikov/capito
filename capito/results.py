@@ -75,11 +75,14 @@ class Secrets:
 
         Exact keys follow Sentry's DEFAULT_DENYLIST (auth headers, cookies, sessions, CSRF, credentials);
         keys ending in token, apikey or privatekey follow GitLab's log filter (refreshToken, x-goog-api-key,
-        but not prompt_tokens); password, passwd and secret anywhere in a key; bearer tokens and JWTs in text.
+        but not prompt_tokens); password, passwd and secret anywhere in a key; keys ending in signature or
+        credential and the exact key sig, the parameters that make a signed link (S3, GCS, Azure SAS, CloudFront)
+        a working one; bearer tokens and JWTs in text.
         """
         return cls(keys=('authorization', 'proxy-authorization', 'cookie', 'set-cookie', 'session', 'sessionid', 'csrf',
                          'credentials', 'tokens', re.compile('token$'), re.compile('apikey$'), re.compile('privatekey$'),
-                         re.compile('password'), re.compile('passwd'), re.compile('secret')),
+                         re.compile('password'), re.compile('passwd'), re.compile('secret'),
+                         re.compile('signature$'), re.compile('credential$'), 'sig'),
                    values=(re.compile(r'(?i)(?<=bearer\s)[^\s"<>]+'), re.compile(r'\beyJ[\w-]+\.[\w-]+\.[\w-]+')))
 
     def extend(self, *, keys=(), values=()):

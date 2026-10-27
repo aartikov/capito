@@ -35,13 +35,13 @@ def test_report_keeps_http_contract_assertions_and_coverage_separate(tmp_path, m
 
 def test_project_policy_hides_its_keys_without_affecting_other_clients(make_client):
     class SignedClient(Client):
-        core = Core(secrets=Secrets.http().extend(keys={'Service-Signature'}))  # matches service_signature: case, - and _ are ignored
-    reply = [(200, {'id': 1, 'service_signature': 'sig'})]
+        core = Core(secrets=Secrets.http().extend(keys={'Service-Code'}))  # matches service_code: case, - and _ are ignored
+    reply = [(200, {'id': 1, 'service_code': 'sig'})]
     signed = make_client(replies=reply, client_class=SignedClient).call('POST', '/things', body={'id': 1})
     plain = make_client(replies=reply).call('POST', '/things', body={'id': 1})
-    assert json.loads(signed.view('body', format='json')) == {'body': {'id': 1, 'service_signature': '<redacted>'}}
-    assert json.loads(plain.view('body', format='json')) == {'body': {'id': 1, 'service_signature': 'sig'}}
-    assert signed.body['service_signature'] == 'sig'  # data for logic stays raw
+    assert json.loads(signed.view('body', format='json')) == {'body': {'id': 1, 'service_code': '<redacted>'}}
+    assert json.loads(plain.view('body', format='json')) == {'body': {'id': 1, 'service_code': 'sig'}}
+    assert signed.body['service_code'] == 'sig'  # data for logic stays raw
 
 
 def test_masking_covers_keys_values_and_known_values():
@@ -64,7 +64,7 @@ def test_core_preset_hides_common_credentials_and_keeps_counters():
                           'session': 'sess', 'csrf': 'c', 'error': f'expired token {jwt}', 'private_key': 'pk',
                           'tokens': {'access': 'a2'}, 'credentials': {'user': 'u'},
                           'usage': {'prompt_tokens': 12, 'total_tokens': 42, 'completion_tokens_details': {'reasoning_tokens': 5}},
-                          'download': 'https://cdn.example.test/f.png?X-Amz-Signature=sig&api_key=k&size=2'},
+                          'download': 'https://cdn.example.test/f.png?X-Amz-Expires=60&api_key=k&size=2'},
                     request={'url': 'http://x/items?token=t1&page=2&q=Bearer leaked',
                              'headers': {'Cookie': 'c', 'X-API-Key': 'k', 'X-CSRF-Token': 'c'}})
     safe = json.loads(result.view(format='json'))
@@ -77,7 +77,7 @@ def test_core_preset_hides_common_credentials_and_keeps_counters():
     assert body['sessionsCount'] == 3 and body['tokensCount'] == 2
     assert body['usage'] == {'prompt_tokens': 12, 'total_tokens': 42, 'completion_tokens_details': {'reasoning_tokens': 5}}
     assert body['error'] == 'expired token <redacted>'
-    assert body['download'] == 'https://cdn.example.test/f.png?X-Amz-Signature=sig&api_key=<redacted>&size=2'
+    assert body['download'] == 'https://cdn.example.test/f.png?X-Amz-Expires=60&api_key=<redacted>&size=2'
 
 
 
@@ -117,13 +117,30 @@ def test_api_keys_are_hidden_under_vendor_names_and_a_plain_key_only_when_declar
     assert json.loads(declared.view('request.url', format='json'))['request']['url'] == 'http://x/items?key=<redacted>&page=2'
 
 
+@pytest.mark.parametrize('link, shown', [
+    ('https://b.s3.amazonaws.com/f.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIA0%2F20261027%2Fs3&X-Amz-Expires=60'
+     '&X-Amz-SignedHeaders=host&X-Amz-Signature=fe5f80',
+     'https://b.s3.amazonaws.com/f.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=<redacted>&X-Amz-Expires=60'
+     '&X-Amz-SignedHeaders=host&X-Amz-Signature=<redacted>'),
+    ('https://storage.googleapis.com/b/o?X-Goog-Credential=svc%40p.iam&X-Goog-Expires=60&X-Goog-Signature=0a1b',
+     'https://storage.googleapis.com/b/o?X-Goog-Credential=<redacted>&X-Goog-Expires=60&X-Goog-Signature=<redacted>'),
+    ('https://acct.blob.core.windows.net/c/b.txt?sv=2022-11-02&se=2026-10-28&sp=r&sig=Zm9v',
+     'https://acct.blob.core.windows.net/c/b.txt?sv=2022-11-02&se=2026-10-28&sp=r&sig=<redacted>'),
+    ('https://d1.cloudfront.net/v.mp4?Expires=1798761600&Signature=AbC~d_&Key-Pair-Id=K2J',
+     'https://d1.cloudfront.net/v.mp4?Expires=1798761600&Signature=<redacted>&Key-Pair-Id=K2J'),
+])
+def test_core_preset_hides_what_makes_a_signed_link_work(link, shown):
+    result = Result(policy=Secrets.http(), body={'download': link, 'signaturesCount': 2})
+    assert json.loads(result.view(format='json'))['body'] == {'download': shown, 'signaturesCount': 2}
+
+
 def test_extended_policy_hides_signed_url_parameters_and_lists_its_rules():
-    policy = Secrets.http().extend(keys=('x-amz-signature',))
-    result = Result(policy=policy, body={'download': 'https://cdn.example.test/f.png?X-Amz-Signature=sig&size=2'})
-    assert json.loads(result.view(format='json'))['body']['download'] == 'https://cdn.example.test/f.png?X-Amz-Signature=<redacted>&size=2'
+    policy = Secrets.http().extend(keys=('x-cdn-hash',))  # a project's own signing parameter
+    result = Result(policy=policy, body={'download': 'https://cdn.example.test/f.png?X-Cdn-Hash=h1&size=2'})
+    assert json.loads(result.view(format='json'))['body']['download'] == 'https://cdn.example.test/f.png?X-Cdn-Hash=<redacted>&size=2'
     rules = str(policy)
     keys, values = rules.splitlines()
-    assert keys.startswith('keys: ') and 'xamzsignature' in keys and '/token$/' in keys
+    assert keys.startswith('keys: ') and 'xcdnhash' in keys and '/token$/' in keys and '/signature$/' in keys
     assert values.startswith('values: ') and 'bearer' in values
 
 
