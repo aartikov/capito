@@ -22,10 +22,10 @@ def contract(tmp_path, **parameters):
     return c
 
 
-def test_operations_resolve_by_id_and_route_and_keep_security(tmp_path):
+def test_operations_resolve_by_method_and_route_and_keep_security(tmp_path):
     c = contract(tmp_path)
-    op = c.get('getThing')
-    assert op is c.get('GET', '/things/{thingId}')
+    op = c.get('get', '/things/{thingId}')
+    assert op.id == 'getThing' and op.method == 'GET'
     assert op.security == []
     assert c.expanded({'$ref': '#/components/schemas/Thing'})['properties']['id']['type'] == 'integer'
     with pytest.raises(ValueError, match='Unknown operation'):
@@ -112,14 +112,22 @@ def test_path_and_query_encoding_needs_no_contract(value, encoded):
         build_url('/things', {}, {'filter': {'a': 1}})
 
 
-def test_path_parameter_overrides_and_duplicate_operation_ids(tmp_path):
+def test_path_parameter_overrides(tmp_path):
     c = contract(tmp_path, key={'name': 'thingId', 'in': 'path', 'required': True, 'schema': {'type': 'integer'}})
-    assert c.get('getThing').parameters[0]['schema']['type'] == 'integer'
-    data = c.document
-    data['paths']['/other'] = {'get': {'operationId': 'getThing', 'responses': {}}}
-    c.path.write_text(json.dumps(data))
-    with pytest.raises(ValueError, match='Duplicate operationId'):
-        Contract.from_file(c.path)
+    assert c.get('GET', '/things/{thingId}').parameters[0]['schema']['type'] == 'integer'
+
+
+def test_a_repeated_operation_id_keeps_help_and_validation_names_it(tmp_path, make_client):
+    path = schema(tmp_path)
+    data = json.loads(path.read_text())
+    data['paths']['/things']['get']['operationId'] = 'listThings'
+    data['paths']['/others'] = {'get': {'operationId': 'listThings', 'responses': {'200': {'description': 'ok'}}}}
+    path.write_text(json.dumps(data))
+    c = make_client(path, replies=[(200, {'id': 1})], validate=True)
+    assert {'api:GET /things', 'api:GET /others'} <= {row.id for row in c.operations(kind='api')}
+    assert c.describe('api:GET /others').summary == 'listThings'  # the label of an operation without a summary
+    request = c.call('GET', '/things').validation['backend_api']['request']
+    assert request['status'] == 'unavailable' and "Operation ID 'listThings'" in request['reason']
 
 
 @pytest.mark.parametrize('name,content', [('api.txt', '{}'), ('api.json', '{}'), ('api.yaml', 'paths: []'), ('api.json', '{bad')])

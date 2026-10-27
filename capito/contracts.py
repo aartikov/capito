@@ -62,10 +62,13 @@ class Operation:
 
 
 class Contract:
-    """One OpenAPI document: operations by id and route, schema notation for help, examples."""
+    """One OpenAPI document: operations by method and route, schema notation for help, examples.
+
+    An operationId is only a label for an operation without a summary: nothing is looked up by it, so a
+    contract that repeats one still gives help (validation reports the repeat, as openapi-core rejects it).
+    """
     def __init__(self, document):
         self.document = document
-        self.operations = {}
         self.by_route = {}
         for route, item in self.document.get("paths", {}).items():
             item = self.deref(item)
@@ -76,9 +79,6 @@ class Contract:
                               [self.deref(p) for p in item.get("parameters", []) + spec.get("parameters", [])]}
                 op = Operation(spec.get("operationId", method.upper() + " " + route), method.upper(), route,
                                spec, list(parameters.values()), spec.get("security", self.document.get("security", [])))
-                if op.id in self.operations:
-                    raise ValueError(f"Duplicate operationId: {op.id}")
-                self.operations[op.id] = op
                 self.by_route[(op.method, route)] = op
 
     @classmethod
@@ -101,11 +101,11 @@ class Contract:
             value = {**result, **{k: v for k, v in value.items() if k != "$ref"}}
         return value
 
-    def get(self, operation, route=None):
+    def get(self, method, route):
         try:
-            return self.by_route[(operation.upper(), route)] if route else self.operations[operation]
+            return self.by_route[(method.upper(), route)]
         except KeyError:
-            raise ValueError(f"Unknown operation: {operation} {route or ''}; use client.operations()") from None
+            raise ValueError(f"Unknown operation: {method} {route}; use client.operations()") from None
 
     def expanded(self, value, seen=()):
         if isinstance(value, list):
