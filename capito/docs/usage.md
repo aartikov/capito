@@ -135,7 +135,7 @@ On a typo `describe` raises `ValueError` with the closest options: `Unknown sche
 | `auth` | — | Authorization scheme from the contract, or `none` |
 | `api` | Operations the command calls | — |
 | `effects`, `prerequisites` | Only if the command does more than "one request, local state unchanged", and what to prepare | — |
-| `returns` | For a single command, `Result` and the success body schema; for a compound one, steps and `data` fields | `Result` and body schema for each code |
+| `returns` | For a single command, `Result` and the success body schema; for a compound one, steps and `data` fields | `Result` and body schema for each code: `none` for a response without a body (`HEAD`, 1xx, 204, 304), `not described` when the contract gives no body schema |
 | `example` | A ready call | A ready `client.call(...)` |
 | `commands` | — | Wrapping commands |
 

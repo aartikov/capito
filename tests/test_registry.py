@@ -150,6 +150,26 @@ def test_operation_help_lists_every_response_and_defines_named_objects_once(tmp_
     assert help_.example == "client.call('POST', '/things', body={'id': 1})"
 
 
+def test_help_tells_a_response_without_body_from_an_undescribed_one(tmp_path, make_client):
+    data = json.loads(schema(tmp_path).read_text())
+    data['paths']['/things']['delete'] = {'responses': {
+        '200': {'description': 'gone'},
+        '202': {'description': 'queued', 'content': {'application/json': {}}},
+        '203': {'description': 'any', 'content': {'application/json': {'schema': {}}}},
+        '204': {'description': 'empty'}, '304': {'description': 'same'}}}
+    data['paths']['/things']['head'] = {'responses': {'200': {'description': 'exists'}}}
+    path = tmp_path / 'bodies.json'
+    path.write_text(json.dumps(data))
+    c = make_client(path)
+    assert c.describe('api:DELETE /things').returns == ('Result\n'
+                                                       '  body on 200 (gone): not described\n'
+                                                       '  body on 202 (queued): not described [application/json]\n'
+                                                       '  body on 203 (any): any\n'
+                                                       '  body on 204 (empty): none\n'
+                                                       '  body on 304 (same): none')
+    assert c.describe('api:HEAD /things').returns == 'Result\n  body on 200 (exists): none'
+
+
 def test_local_commands_name_their_result_type(make_client):
     c = make_client(client_class=AccountsClient)
     kinds = {name: c.describe(f'command:accounts.{name}').returns for name in ('list', 'get', 'session', 'forget')}

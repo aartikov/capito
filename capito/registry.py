@@ -14,6 +14,11 @@ RESULT_TYPES = {'http': 'Result', 'compound': 'CompoundResult', 'account': 'Acco
 STANDARD_ARGUMENTS = ('as_user', 'validate')
 
 
+def bodiless(method, code):
+    """A response HTTP forbids a body for: to HEAD, 1xx, 204 and 304."""
+    return method.upper() == 'HEAD' or code in ('204', '304') or code.startswith('1')
+
+
 def command(summary, *, api=(), effects='', example='', parameters=None, result='http',
             steps=(), data=None, prerequisites=(), notes=()):
     """Describe a command beside its implementation; schema_from links args to OpenAPI.
@@ -395,11 +400,14 @@ class Registry:
             content = response.get('content', {})
             if content:
                 media = 'application/json' if 'application/json' in content else next(iter(content))
-                text = self.contract.schema_text(content[media].get('schema', {}), named, 1, **limits)
-                if media != 'application/json':
-                    text += f' [{media}]'
+                if 'schema' in content[media]:
+                    text = self.contract.schema_text(content[media]['schema'], named, 1, **limits)
+                    if media != 'application/json':
+                        text += f' [{media}]'
+                else:  # the type is known, the structure is not: validation reports such a body as not_described
+                    text = f'not described [{media}]'
             else:
-                text = 'none'
+                text = 'none' if bodiless(op.method, code) else 'not described'
             description = one_line(response.get('description', ''))
             groups.setdefault((description, text), []).append(code)
         return [f"  body on {', '.join(codes)}" + (f' ({description})' if description else '') + f': {text}'
