@@ -185,3 +185,13 @@ def test_content_type_and_a_different_content_type_header_are_an_error(make_clie
     c = make_client()
     with pytest.raises(ValueError, match='disagree'):
         c.call('POST', '/things', body='text', content_type='text/plain', headers={'Content-Type': 'application/json'})
+
+
+def test_a_hidden_header_value_repeated_by_the_server_stays_hidden(make_client):
+    echo = lambda request: httpx.Response(400, json={'error': f"key {request.headers['x-goog-api-key']} is not valid, "
+                                                              f"tag {request.headers['x-tag']}"})
+    c = make_client(replies=[echo])
+    result = c.call('GET', '/things', headers={'x-goog-api-key': 'KEY-SENTINEL', 'x-tag': 'visible-tag'})
+    shown = [str(result), result.view(format='json'), result.view('body', 'error')]
+    assert not any('KEY-SENTINEL' in text for text in shown)
+    assert all('visible-tag' in text for text in shown[1:])  # only headers the policy hides are hidden by value

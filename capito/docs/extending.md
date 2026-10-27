@@ -231,7 +231,7 @@ The project does not access underscore attributes; record storage is internal.
 | `patterns` | a part of any string value matching a regular expression | a nameless secret inside text |
 | `result.add_secrets(value)` | a specific value everywhere in the result's output | the command got a secret and knows its value: a sign-in token, a one-time code |
 
-`Secrets.http()` is the core preset: authorization headers, cookies, sessions, CSRF and API keys (exact names follow Sentry's `DEFAULT_DENYLIST`), the words `token`, `password`, `passwd`, `secret`, and the patterns `Bearer …` and JWT. Query parameters in addresses (`?api_key=…`, signed links) are hidden by the same name rules; the parameter name stays visible. `print(client.core.secrets)` shows the effective rules. The policy does not hide personal data such as phone numbers and names.
+`Secrets.http()` is the core preset: authorization headers, cookies, sessions, CSRF and API keys (exact names follow Sentry's `DEFAULT_DENYLIST`), the words `token`, `password`, `passwd`, `secret`, `apikey` (so `x-goog-api-key` and `x-rapidapi-key` too), and the patterns `Bearer …` and JWT. The value of every request header the policy hides is also hidden everywhere in that result: a server that repeats a key in its error message does not reveal it. Query parameters in addresses (`?api_key=…`, signed links) are hidden by the same name rules; the parameter name stays visible. A generic name such as `key` is not in the preset, since many APIs use it for plain values; an API that passes its key as `?key=…` adds it: `Secrets.http().extend(keys=('key',))`. `print(client.core.secrets)` shows the effective rules. The policy does not hide personal data such as phone numbers and names.
 
 ## Request execution
 

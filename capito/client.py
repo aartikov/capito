@@ -209,8 +209,10 @@ class Client:
                              request={'method': method, 'url': request.url, 'headers': dict(request.headers),
                                  'body': '<raw body omitted>' if raw is not None else deepcopy(body),
                                  'multipart': describe_multipart(multipart)})
+        # A header the policy hides is hidden by value too: a server may repeat a key in its answer.
         result.add_secrets(*(strings(account.session) if account else ()),
-                           header(request.headers, 'authorization'), header(request.headers, 'cookie'))
+                           header(request.headers, 'authorization'), header(request.headers, 'cookie'),
+                           *(value for name, value in request.headers.items() if core.secrets.hides(name)))
         enabled = core.validate if validate is None else validate
         can_refresh = auto_refresh and account is not None and session is None and not supplied_auth
         response, account = self._send(request, route, account, result, can_refresh=can_refresh, validate=enabled)

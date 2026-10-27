@@ -34,11 +34,12 @@ class Secrets:
         """Credentials common to any HTTP API.
 
         Exact names follow Sentry's DEFAULT_DENYLIST (auth headers, cookies, sessions, CSRF, API keys);
-        words cover tokens, passwords and secrets under any field name; patterns catch bearer tokens and JWTs in text.
+        words cover tokens, passwords, secrets and API keys under any name (x-goog-api-key, x-rapidapi-key);
+        patterns catch bearer tokens and JWTs in text.
         """
         return cls(keys=('authorization', 'proxy-authorization', 'cookie', 'set-cookie', 'x-api-key', 'api_key', 'apikey',
                          'session', 'sessionid', 'csrf', 'csrftoken', 'x-csrf-token', 'x-xsrf-token'),
-                   key_words=('token', 'password', 'passwd', 'secret'),
+                   key_words=('token', 'password', 'passwd', 'secret', 'apikey'),
                    patterns=(r'(?i)(?<=bearer\s)[^\s"<>]+', r'\beyJ[\w-]+\.[\w-]+\.[\w-]+'))
 
     def extend(self, *, keys=(), key_words=(), patterns=()):

@@ -73,6 +73,18 @@ def test_core_preset_hides_common_credentials_and_keeps_counters():
     assert body['download'] == 'https://cdn.example.test/f.png?X-Amz-Signature=sig&api_key=<redacted>&size=2'
 
 
+
+def test_api_keys_are_hidden_under_vendor_names_and_a_plain_key_only_when_declared():
+    fields = dict(request={'url': 'http://x/items?key=k&page=2', 'headers': {'x-goog-api-key': 'g', 'X-RapidAPI-Key': 'r'}},
+                  body={'googleApiKey': 'b'})
+    preset = json.loads(Result(policy=Secrets.http(), **fields).view(format='json'))
+    assert preset['request']['headers'] == {'x-goog-api-key': '<redacted>', 'X-RapidAPI-Key': '<redacted>'}
+    assert preset['body'] == {'googleApiKey': '<redacted>'}
+    assert preset['request']['url'] == 'http://x/items?key=k&page=2'  # `key` is an ordinary name in many APIs
+    declared = Result(policy=Secrets.http().extend(keys=('key',)), **fields)
+    assert json.loads(declared.view('request.url', format='json'))['request']['url'] == 'http://x/items?key=<redacted>&page=2'
+
+
 def test_extended_policy_hides_signed_url_parameters_and_lists_its_rules():
     policy = Secrets.http().extend(keys=('x-amz-signature',))
     result = Result(policy=policy, body={'download': 'https://cdn.example.test/f.png?X-Amz-Signature=sig&size=2'})
