@@ -69,7 +69,6 @@ def test_interface_option_is_set_before_connecting(loopback_config, server, monk
 @pytest.mark.parametrize('body,media,expected', [
     ({'id': 1}, None, b'{"id": 1}'),
     ({'id': [1, 2]}, 'application/x-www-form-urlencoded', b'id=1&id=2'),
-    (b'bytes', None, b'bytes'),
     ('text', 'text/plain', b'text'),
     (None, None, None),
 ])
@@ -226,7 +225,8 @@ def test_the_body_encoding_follows_the_type_without_parameters_and_keeps_the_typ
     assert encode_body(body={'id': [1, 2]}, content_type=media) == (expected, media)
 
 
-@pytest.mark.parametrize('body,media', [({'id': 1}, 'text/plain'), ([1], 'application/x-www-form-urlencoded'), (1, 'text/plain')])
+@pytest.mark.parametrize('body,media', [({'id': 1}, 'text/plain'), ([1], 'application/x-www-form-urlencoded'), (1, 'text/plain'),
+                                        (b'ready', None), (b'ready', 'application/octet-stream'), (bytearray(b'x'), 'application/json')])
 def test_a_body_a_text_type_cannot_hold_is_an_error(body, media):
     with pytest.raises(TypeError, match='raw='):
         encode_body(body=body, content_type=media)

@@ -293,3 +293,12 @@ def test_a_header_value_http_cannot_carry_is_an_error_naming_the_header(make_cli
     with pytest.raises(exception, match=re.escape(message)):
         make_client().call('GET', '/things', headers={'X-Name': value})
     assert requests() == []
+
+
+def test_ready_bytes_go_as_raw_not_as_body(make_client, requests):
+    c = make_client(replies=[(200, {'id': 1})])
+    with pytest.raises(TypeError, match='ready bytes go as raw='):
+        c.call('POST', '/things', body=b'\x00\x01')
+    assert requests() == []
+    result = c.call('POST', '/things', raw=b'\x00\x01')
+    assert requests()[0].content == b'\x00\x01' and result.request['body'] == '<raw body omitted>'

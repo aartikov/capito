@@ -209,8 +209,8 @@ def encode_body(*, body=None, multipart=None, raw=None, content_type=None):
         return raw, content_type or "application/octet-stream"
     if body is None:
         return None, content_type
-    if isinstance(body, bytes):
-        return body, content_type or "application/octet-stream"
+    if isinstance(body, (bytes, bytearray, memoryview)):
+        raise TypeError("body takes data to encode; ready bytes go as raw=")
     media = media_type(content_type) if content_type else "application/json"
     if media == "application/json" or media.endswith("+json"):
         return json.dumps(body, ensure_ascii=False, allow_nan=False).encode(), content_type or "application/json"
