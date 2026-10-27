@@ -1,5 +1,6 @@
 """client.py: call(), declaration of command sets, from_config and print(client)."""
 import json
+import re
 
 import httpx
 import pytest
@@ -195,3 +196,12 @@ def test_a_hidden_header_value_repeated_by_the_server_stays_hidden(make_client):
     shown = [str(result), result.view(format='json'), result.view('body', 'error')]
     assert not any('KEY-SENTINEL' in text for text in shown)
     assert all('visible-tag' in text for text in shown[1:])  # only headers the policy hides are hidden by value
+
+
+def test_a_short_hidden_header_value_is_hidden_as_a_token_not_inside_other_text(make_client):
+    echo = lambda request: httpx.Response(401, json={'error': f"Invalid key {request.headers['x-api-key']}", 'retry': 11})
+    c = make_client(replies=[echo])
+    result = c.call('GET', '/things', headers={'X-API-Key': '1'})  # a negative check with a bogus key
+    assert re.match(r'401 GET /things · \d+\.\d\ds · Unexpected HTTP status: 401 · body \{error, retry\}$', str(result))
+    assert json.loads(result.view('body', format='json'))['body'] == {'error': 'Invalid key <redacted>', 'retry': 11}
+    assert json.loads(result.view('request', format='json'))['request']['headers'] == {'X-API-Key': '<redacted>'}

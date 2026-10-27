@@ -91,8 +91,9 @@ class Secrets:
         return key in self._exact or any(rule.search(key) for rule in self._searched)
 
     def text(self, value, values=()):
+        # A known value is hidden as a whole token: a test key '1' must not turn status 401 into 40<redacted>.
         for secret in sorted({s for s in values if isinstance(s, str) and s}, key=len, reverse=True):
-            value = value.replace(secret, REDACTED)
+            value = re.sub(rf'(?<![A-Za-z0-9]){re.escape(secret)}(?![A-Za-z0-9])', REDACTED, value)
         for rule in self.values:
             value = rule.sub(REDACTED, value)
         value = self._json_pairs(value)

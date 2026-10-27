@@ -229,7 +229,7 @@ The project does not access underscore attributes; record storage is internal.
 | `keys`: a string | the whole value of a field, header or query parameter with exactly this key | the key may also appear in a harmless value: `code`, `session` |
 | `keys`: `re.compile(...)` | the whole value of every key the expression is found in | a family of keys: `re.compile('token$')` hides `access_token`, `refreshToken` and `X-Auth-Token`, not `prompt_tokens` or `tokenizer` |
 | `values`: `re.compile(...)` | the matching part of any text | a secret without a key inside text: an API key format such as `re.compile(r'itm_[A-Za-z0-9]{32}')` |
-| `result.add_secrets(value)` | a specific value everywhere in the result's output | the command got a secret and knows its value: a sign-in token, a one-time code |
+| `result.add_secrets(value)` | a specific value everywhere in the result's output, as a whole token: not inside a longer word or number | the command got a secret and knows its value: a sign-in token, a one-time code |
 
 Key rules see the key in lower case without `-` and `_`: `X-API-Key` is `xapikey` for both a string and an expression, so write them in lower case.
 
