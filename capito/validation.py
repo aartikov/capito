@@ -123,6 +123,12 @@ def content_types(value):
             yield from content_types(child)
 
 
+def type_case(content_type):
+    """The media type in lower case, as contracts name it; parameters such as boundary keep their case."""
+    media, separator, parameters = (content_type or '').partition(';')
+    return media.strip().lower() + separator + parameters
+
+
 def request_adapter(request, route, server):
     """The request as openapi-core reads it, with the operation already known.
 
@@ -139,12 +145,12 @@ def request_adapter(request, route, server):
         path_pattern=location.path.rstrip('/') + route, method=request.method.lower(),
         parameters=RequestParameters(query=MultiDict(parse_qsl(url.query, keep_blank_values=True)),
                                      header=Headers(request.headers), cookie=MultiDict(cookies), path=dict(request.path or {})),
-        content_type=(request.content_type or '').lower(), body=request.body)
+        content_type=type_case(request.content_type), body=request.body)
 
 
 def response_adapter(response):
     return SimpleNamespace(status_code=response.status, headers=Headers(response.headers),
-                           content_type=(first(response.headers.get('content-type')) or '').lower(),
+                           content_type=type_case(first(response.headers.get('content-type'))),
                            data=response.content or None)
 
 

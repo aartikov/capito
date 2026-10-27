@@ -311,3 +311,21 @@ def test_headers_httpx_adds_are_seen_by_validation_as_sent(tmp_path, make_client
     assert 'User-Agent' not in default.request['headers']  # the result shows what call() set, as documented
     own = c.call('GET', '/things', headers={'user-agent': 'robot/1'})
     assert own.validation['backend_api']['request']['status'] == 'valid' and requests()[1].headers['user-agent'] == 'robot/1'
+
+
+@pytest.mark.parametrize('purpose, status, line', [
+    ('X', 'valid', '  backend_api: valid'),
+    (None, 'invalid', "  backend_api: request invalid: <root> missing 'purpose'"),
+])
+def test_a_form_boundary_keeps_its_case_in_validation(tmp_path, make_client, purpose, status, line):
+    backend = schema(tmp_path)
+    data = json.loads(backend.read_text())
+    data['paths']['/upload'] = {'post': {'responses': {'200': {'description': 'ok'}}, 'requestBody': {'required': True, 'content': {
+        'multipart/form-data': {'schema': {'type': 'object', 'required': ['purpose'], 'properties': {'purpose': {'type': 'string'}}}}}}}}
+    backend.write_text(json.dumps(data))
+    field = 'purpose' if purpose else 'other'
+    form = f'--ABCdef\r\nContent-Disposition: form-data; name="{field}"\r\n\r\nX\r\n--ABCdef--\r\n'.encode()
+    c = make_client(backend, replies=[(200, None)], validate=True)
+    result = c.call('POST', '/upload', raw=form, content_type='Multipart/Form-Data; boundary=ABCdef')
+    assert result.validation['backend_api']['request']['status'] == status
+    assert result.view('validation').splitlines()[-1] == line
