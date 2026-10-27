@@ -31,7 +31,7 @@ Requires Python 3.12+:
 pip install capito
 ```
 
-Pin the version in your project, for example `capito==0.3.0`.
+Pin the version in your project, for example `capito==0.4.0`.
 
 ### Configure
 
