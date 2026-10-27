@@ -63,7 +63,8 @@ class _Missing:
 
 
 MISSING = _Missing()
-_TOKEN = re.compile(r'([^.\[\]]+)|\[(-?\d*)\]')
+# A key, [] or [n], or a key in quotes that holds dots or brackets: labels["app.kubernetes.io/name"].
+_TOKEN = re.compile(r'([^.\[\]]+)|\[(-?\d*)\]|\["((?:[^"\\]|\\.)*)"\]')
 
 
 def is_viewable(value):
@@ -71,13 +72,16 @@ def is_viewable(value):
 
 
 def parse(path):
-    """'body.items[].id' -> ['body', 'items', [], 'id']; [] maps over a list, [n] takes an element."""
+    """'body.items[].id' -> ['body', 'items', [], 'id']; [] maps over a list, [n] takes an element, ["a.b"] a key."""
     tokens, position = [], 0
     for match in _TOKEN.finditer(path):
         if match.start() != position and path[position:match.start()] != '.':
             raise ValueError(f'Bad path: {path!r}')
-        key, index = match.groups()
-        tokens.append(key if key is not None else ([] if index == '' else int(index)))
+        key, index, quoted = match.groups()
+        if quoted is not None:
+            tokens.append(re.sub(r'\\(.)', r'\1', quoted))
+        else:
+            tokens.append(key if key is not None else ([] if index == '' else int(index)))
         position = match.end()
     if not tokens or position != len(path):
         raise ValueError(f'Bad path: {path!r}')

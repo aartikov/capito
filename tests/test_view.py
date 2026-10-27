@@ -68,6 +68,23 @@ def test_collapsed_nodes_tell_how_many_levels_they_hide():
     assert deep.view('body').splitlines()[1:] == ['body:', '  a: [2] {b} ↓3', '  e: {}']
 
 
+def test_a_key_with_dots_or_brackets_is_selected_in_quotes():
+    labels = {'app.kubernetes.io/name': 'shop', 'tier[0]': 'web', 'say "hi"': 'quoted', 'a\\b': 'slash', 'app': 'plain'}
+    r = result(body={'metadata': {'labels': labels}})
+    assert parse('body.metadata.labels["app.kubernetes.io/name"]') == ['body', 'metadata', 'labels', 'app.kubernetes.io/name']
+    for path, value in (('body.metadata.labels["app.kubernetes.io/name"]', 'shop'), ('body.metadata.labels["tier[0]"]', 'web'),
+                        ('body.metadata.labels["say \\"hi\\""]', 'quoted'), ('body.metadata.labels["a\\\\b"]', 'slash'),
+                        ('body.metadata["labels"].app', 'plain')):
+        assert r.view(path).endswith(f'{path}={value}')
+        assert select({'body': r.body}, path) == value
+    assert json.loads(r.view('body.metadata.labels["app.kubernetes.io/name"]', format='json')) == {
+        'body': {'metadata': {'labels': {'app.kubernetes.io/name': 'shop'}}}}
+    assert r.view('body.metadata.labels.app.kubernetes.io/name').endswith('=<missing>')  # dots split keys, as before
+    for bad in ('body.labels["app', 'body.labels["a"', 'body.labels[a.b]'):
+        with pytest.raises(ValueError, match='Bad path'):
+            parse(bad)
+
+
 def test_scalar_paths_join_the_header_line_and_absence_differs_from_null():
     line = result().view('body.status', 'body.endedAt', 'body.nothing', 'body.participants[].user.name')
     assert line == ('200 GET /events/{id} · 0.20s · body {id, title, status, +4} ↓3 · '

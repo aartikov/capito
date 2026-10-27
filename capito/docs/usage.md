@@ -269,7 +269,7 @@ alice  session=yes
 
 `backend_api: req=valid resp=invalid` means the phases differ; `body {…} ↓K` gives the body keys and its depth, `[N]` a list, `<N bytes>` binary content. A compound command shows a summary over steps: the common status if it is the same for all checked steps, otherwise only the deviating steps (`upload resp=invalid`, `publish invalid` for both phases); details: `view("steps.upload.validation")`.
 
-**Paths** choose what to show. They are relative to the object: `body`, `body.owner.name`, `request`, `headers`, `validation`, `errors`, `error`, `attempts`; for a compound command, `steps`, `steps.publish.body`, `data`. `[]` goes through a list, `[0]` and `[-1]` take an element.
+**Paths** choose what to show. They are relative to the object: `body`, `body.owner.name`, `request`, `headers`, `validation`, `errors`, `error`, `attempts`; for a compound command, `steps`, `steps.publish.body`, `data`. `[]` goes through a list, `[0]` and `[-1]` take an element. A key with dots or brackets goes in quotes: `body.labels["app.kubernetes.io/name"]` (a quote or backslash inside is escaped with `\`).
 
 **`depth`** is how many levels to expand under each selected node. At the limit an object collapses to `{first 3 keys, +N}`, a list of objects to `[N] {keys of the first}`. `+N` is a preview, not a limit: all keys are visible one level further. Scalars and lists of scalars are always visible. A list does not count as a level: its elements show their fields. `depth="all"` shows everything.
 
