@@ -88,8 +88,12 @@ class Contract:
             if not ref.startswith("#/"):
                 raise ValueError(f"External references are not enabled: {ref}")
             result = self.document
-            for part in ref[2:].split("/"):
-                result = result[part.replace("~1", "/").replace("~0", "~")]
+            try:
+                for part in ref[2:].split("/"):
+                    part = part.replace("~1", "/").replace("~0", "~")
+                    result = result[int(part)] if isinstance(result, list) else result[part]
+            except (KeyError, IndexError, TypeError, ValueError):
+                raise ValueError(f"Broken reference: {ref} is not in the document") from None
             value = {**result, **{k: v for k, v in value.items() if k != "$ref"}}
         return value
 
@@ -310,8 +314,9 @@ class ContractSource:
                     content = self._fetch(self.location) if self.remote else Path(self.location).read_bytes()
                     self.sha256 = hashlib.sha256(content).hexdigest()
                     self.contract = Contract(parse_document(content, self.name))
-                except (OSError, ValueError) as exc:
-                    self.error = f'Contract {self.name} ({self.location}) is unavailable: {exc}'
+                except Exception as exc:  # whatever the reason, it is remembered: a half-read contract is never used
+                    reason = str(exc) if isinstance(exc, (OSError, ValueError)) else f'{type(exc).__name__}: {exc}'
+                    self.error = f'Contract {self.name} ({self.location}) is unavailable: {reason}'
         if self.error:
             raise ValueError(self.error)
         return self.contract

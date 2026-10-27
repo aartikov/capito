@@ -93,6 +93,32 @@ def test_unusable_help_contract_fails_help_not_client_creation(tmp_path, name, c
     assert 'unavailable' in c.core.contracts()['backend_api']
 
 
+@pytest.mark.parametrize('reference, document', [
+    ('#/components/parameters/Missing', {}),                                 # a reference into nothing
+    ('#/components/parameters/0', {'components': {'parameters': {}}}),      # a key that is not there
+    ('#/x-shared/9', {'x-shared': [{'name': 'a', 'in': 'query'}]}),          # an index past the list
+])
+def test_a_broken_reference_makes_the_contract_unavailable_every_time(tmp_path, make_client, reference, document):
+    path = schema(tmp_path)
+    data = json.loads(path.read_text()) | document
+    data['paths']['/things']['get']['parameters'] = [{'$ref': reference}]
+    path.write_text(json.dumps(data))
+    c = make_client(path)
+    for _ in range(2):  # the second use gets the same reason, not a half-read contract
+        with pytest.raises(ValueError, match=f'Contract backend_api .* is unavailable: Broken reference: {reference}'):
+            c.operations()
+    assert reference in c.core.contracts()['backend_api']['unavailable']
+
+
+def test_a_reference_into_a_list_is_followed(tmp_path):
+    path = schema(tmp_path)
+    data = json.loads(path.read_text())
+    data['x-shared'] = [{'name': 'limit', 'in': 'query', 'schema': {'type': 'integer'}}]
+    data['paths']['/things']['get']['parameters'] = [{'$ref': '#/x-shared/0'}]
+    path.write_text(json.dumps(data))
+    assert [p['name'] for p in Contract.from_file(path).get('GET', '/things').parameters] == ['limit']
+
+
 def test_format_is_recognised_by_content_not_by_name(tmp_path):
     source = schema(tmp_path, 'api.yaml')
     text = tmp_path / 'openapi'  # no extension, YAML inside
