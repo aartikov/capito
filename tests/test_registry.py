@@ -218,6 +218,21 @@ def test_query_help_shows_fields_and_optional_query_stays_out_of_example(tmp_pat
     assert listing.example == 'client.things.list()'
 
 
+def test_a_command_query_example_spreads_an_object_parameter_like_call_needs(tmp_path, make_client, respx_mock):
+    c = make_client(varied_contract(tmp_path), validate=True)
+    respx_mock.route(host='api.test').respond(200)
+
+    class Things:
+        @command('Filter things', api=('api:GET /filtered',), parameters={'query': query_param('api:GET /filtered')})
+        def filtered(self, query, *, as_user=None, validate=None):
+            return c.call('GET', '/filtered', query=query, validate=validate)
+
+    c.core.registry.register('things', Things())
+    example = c.describe('command:things.filtered').example
+    assert example == "client.things.filtered(query={'filter[status]': 'example', 'filter[limit]': 2, 'point': 'x,1,y,true'})"
+    assert eval(example, {'client': type('C', (), {'things': Things()})}).validation['backend_api']['request']['status'] == 'valid'
+
+
 def nested_contract(tmp_path):
     """Things reference Owner, Owner references Avatar; Empty is closed and has no fields."""
     path = schema(tmp_path)
@@ -435,6 +450,16 @@ def varied_contract(tmp_path):
             'price': {'type': 'number', 'minimum': 0.3, 'multipleOf': 0.1},
             'latitude': {'type': 'number', 'minimum': -90, 'maximum': 90, 'multipleOf': 0.0001},
             'ratio': {'type': 'number', 'exclusiveMinimum': 0, 'maximum': 1, 'multipleOf': 0.05}})})},
+        '/filtered': {'get': {'responses': ok, 'parameters': [
+            {'in': 'query', 'name': 'filter', 'required': True, 'style': 'deepObject', 'explode': True,
+             'schema': obj({'status': {'type': 'string'}, 'limit': {'type': 'integer', 'minimum': 2}})},
+            {'in': 'query', 'name': 'point', 'required': True, 'explode': False,
+             'schema': obj({'x': {'type': 'integer'}, 'y': {'type': 'boolean'}})}]}},
+        # openapi-core 0.23 does not read an exploded form object (from=1) and reports it missing: help only.
+        '/ranged': {'get': {'responses': ok, 'parameters': [
+            {'in': 'query', 'name': 'range', 'required': True, 'schema': obj({'from': {'type': 'integer'}})},
+            {'in': 'query', 'name': 'box', 'required': True, 'style': 'spaceDelimited', 'explode': False,
+             'schema': obj({'w': {'type': 'integer'}})}]}},
         '/unique': {'post': body('application/json', {'schema': obj({
             'tags': {'type': 'array', 'minItems': 3, 'uniqueItems': True, 'items': {'type': 'string', 'maxLength': 7}},
             'ids': {'type': 'array', 'minItems': 2, 'uniqueItems': True, 'items': {'type': 'string', 'format': 'uuid'}},
@@ -453,8 +478,14 @@ def test_help_examples_run_as_they_are_and_satisfy_the_contract(tmp_path, make_c
     examples = {op.id: c.describe(op.id).example for op in c.operations(kind='api')}
     statuses = {identifier: eval(example, {'client': c}).validation['backend_api']['request']['status']
                 for identifier, example in examples.items()}  # no example raises
-    assert {k: v for k, v in statuses.items() if v != 'valid'} == {'api:POST /pattern': 'invalid', 'api:POST /xml': 'invalid'}
+    assert {k: v for k, v in statuses.items() if v != 'valid'} == {
+        'api:POST /pattern': 'invalid', 'api:POST /xml': 'invalid', 'api:GET /ranged': 'invalid'}
     # What capito cannot build is a visible placeholder, not a value that looks real.
     assert examples['api:POST /pattern'] == "client.call('POST', '/pattern', body={'code': '<pattern ^[A-Z]{3}$>'})"
     assert examples['api:POST /xml'] == "client.call('POST', '/xml', raw=b'<application/xml body>', content_type='application/xml')"
     assert "body={'name': 'given'}" in examples['api:POST /given']  # the contract's own example comes first
+    # An object in the query is spread into the keys call() sends; a style it cannot spread is a placeholder.
+    assert examples['api:GET /filtered'] == (
+        "client.call('GET', '/filtered', query={'filter[status]': 'example', 'filter[limit]': 2, 'point': 'x,1,y,true'})")
+    assert examples['api:GET /ranged'] == (
+        "client.call('GET', '/ranged', query={'from': 1, 'box': '<box: an object, encode it by style spaceDelimited, explode false>'})")

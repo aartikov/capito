@@ -52,6 +52,29 @@ def path_param(api, name, description):
     return {'type': 'str', 'schema_from': (api, 'path', name), 'description': description}
 
 
+def query_example(parameters, values):
+    """Query values as call() takes them: an object parameter spread into keys by its style.
+
+    call() sends only scalars and lists, so filter={'status': 'a'} becomes filter[status]=a for deepObject,
+    status=a for an exploded form and filter=status,a for a form without explode; another style is a placeholder.
+    """
+    styles = {p['name']: (p.get('style', 'form'), p.get('explode', p.get('style', 'form') == 'form')) for p in parameters}
+    query = {}
+    for name, value in values.items():
+        style, explode = styles.get(name, ('form', True))
+        if not isinstance(value, dict):
+            query[name] = value
+        elif style == 'deepObject':
+            query |= {f'{name}[{key}]': item for key, item in value.items()}
+        elif style == 'form' and explode:
+            query |= value
+        elif style == 'form' and all(not isinstance(item, (dict, list)) for item in value.values()):
+            query[name] = ','.join(f'{key},{text_value(item)}' for key, item in value.items())
+        else:
+            query[name] = f'<{name}: an object, encode it by style {style}{"" if explode else ", explode false"}>'
+    return query
+
+
 def check_declaration(identifier, fn, meta):
     """Errors in a command's own declaration, found when the client is created (no contract needed)."""
     arguments = inspect.signature(fn).parameters
@@ -274,6 +297,9 @@ class Registry:
             schema = self.schema(doc['schema_from'])
             row['schema'] = schema
             example = self.contract.example(schema)
+            if doc['schema_from'][1] == 'query' and isinstance(example, dict):
+                op = self.operation(doc['schema_from'][0])
+                example = query_example([p for p in op.parameters if p['in'] == 'query'], example)
             if example not in ({}, None):
                 row.setdefault('example', example)
         return row
@@ -361,6 +387,8 @@ class Registry:
         for location, target, credentials in [('path', 'path', {}), ('query', 'query', auth_query), ('header', 'headers', auth_headers)]:
             fields = {p['name']: self._parameter_example(p, as_text=location == 'header')
                       for p in op.parameters if p['in'] == location and p.get('required')} | credentials
+            if location == 'query':
+                fields = query_example([p for p in op.parameters if p['in'] == 'query'], fields)
             if fields:
                 values[target] = fields
         cookies = [f"{p['name']}={self._parameter_example(p, as_text=True)}"
