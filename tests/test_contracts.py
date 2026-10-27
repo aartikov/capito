@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from capito.contracts import Contract
+from capito.contracts import Contract, parse_document
 from capito.transport import build_url
 from helpers import schema
 
@@ -115,3 +115,23 @@ def test_failed_contract_download_is_reported(make_client, respx_mock):
     c = make_client('https://docs.example.test/openapi.json')
     with pytest.raises(ValueError, match='HTTP 404'):
         c.describe('api:GET /things')
+
+
+def test_valid_json_is_read_as_json_even_where_yaml_disagrees():
+    text = '{\n\t"openapi": "3.1.0",\n\t"paths": {"/things": {"get": {"parameters": [\n\t\t{"name": "limit", "in": "query", "schema": {"maximum": 1e5}}]}}}\n}'
+    document = parse_document(text.encode())  # a tab in the indentation and an exponent
+    assert document['paths']['/things']['get']['parameters'][0]['schema']['maximum'] == 100000
+
+
+@pytest.mark.parametrize('text', ['openapi: 3.1.0\npaths: {}\n', '{openapi: 3.1.0, paths: {}}'])
+def test_yaml_is_read_as_before(text):
+    assert parse_document(text.encode()) == {'openapi': '3.1.0', 'paths': {}}
+
+
+@pytest.mark.parametrize('text,message', [
+    ('{\n  "openapi": "3.1.0",\n  "paths": {}\n', "api.json: not a valid JSON document: Expecting ',' delimiter at line 4 column 1"),
+    ('openapi: 3.1.0\n\tpaths: {}\n', 'api.yaml: not a valid YAML document: .* at line 2 column 1'),
+])
+def test_a_broken_document_names_its_format_and_position(text, message):
+    with pytest.raises(ValueError, match=message):
+        parse_document(text.encode(), 'api.json' if text.startswith('{') else 'api.yaml')

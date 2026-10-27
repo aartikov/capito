@@ -15,12 +15,30 @@ METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
 UNDEFINED = re.compile('\x00([^\x00]+)\x00')
 
 
+def where(problem, line, column):
+    return f'{problem} at line {line} column {column}'
+
+
 def parse_document(content, label='contract'):
-    """An OpenAPI 3 document from YAML or JSON text; the format is recognised by content, not by name."""
+    """An OpenAPI 3 document from YAML or JSON text; the format is recognised by content, not by name.
+
+    Valid JSON is read as JSON: YAML would reject tabs in its indentation and read 1e5 as a string.
+    A YAML document fails JSON at its first character and is read as YAML.
+    """
     try:
-        document = yaml.safe_load(content)
-    except yaml.YAMLError as exc:
-        raise ValueError(f'{label}: not a YAML or JSON document ({type(exc).__name__})') from None
+        document = json.loads(content)
+    except ValueError as exc:
+        json_error = where(exc.msg, exc.lineno, exc.colno) if isinstance(exc, json.JSONDecodeError) else str(exc)
+        try:
+            document = yaml.safe_load(content)
+        except yaml.YAMLError as yaml_exc:
+            head = content[:64].decode(errors='ignore') if isinstance(content, bytes) else content[:64]
+            if head.lstrip('﻿ \t\r\n').startswith('{'):
+                raise ValueError(f'{label}: not a valid JSON document: {json_error}') from None
+            mark = getattr(yaml_exc, 'problem_mark', None)
+            problem = getattr(yaml_exc, 'problem', None) or type(yaml_exc).__name__
+            yaml_error = where(problem, mark.line + 1, mark.column + 1) if mark else problem
+            raise ValueError(f'{label}: not a valid YAML document: {yaml_error}') from None
     if not isinstance(document, dict) or not isinstance(document.get('paths'), dict) or not str(document.get('openapi', '')).startswith('3.'):
         raise ValueError(f'{label}: expected an OpenAPI 3 document with paths')
     return document
