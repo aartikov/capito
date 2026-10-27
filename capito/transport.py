@@ -184,6 +184,13 @@ def media_type(content_type):
     return content_type.split(';', 1)[0].strip().lower()
 
 
+def same_type(left, right):
+    """Two Content-Type values name one type: the type is case-insensitive, parameters such as boundary are not."""
+    normal = lambda value: [part.strip() for part in value.split(';')]
+    (left_type, *left_parameters), (right_type, *right_parameters) = normal(left), normal(right)
+    return left_type.lower() == right_type.lower() and left_parameters == right_parameters
+
+
 def encode_body(*, body=None, multipart=None, raw=None, content_type=None):
     """Encode exactly one body kind; returns (bytes or None, media type or None).
 

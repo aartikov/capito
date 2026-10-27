@@ -193,10 +193,22 @@ def test_the_type_in_content_type_or_in_headers_sends_the_same_request(make_clie
     assert first.content == (b'{"id": 1}' if 'json' in media else b'id=1')
 
 
-def test_content_type_and_a_different_content_type_header_are_an_error(make_client):
+@pytest.mark.parametrize('content_type, header', [
+    ('text/plain', 'application/json'),
+    ('text/plain', 'text/plain; charset=utf-8'),               # parameters are part of the type
+    ('text/plain; charset=utf-8', 'text/plain; charset=UTF-8'),  # and keep their case
+])
+def test_content_type_and_a_different_content_type_header_are_an_error(make_client, content_type, header):
     c = make_client()
     with pytest.raises(ValueError, match='disagree'):
-        c.call('POST', '/things', body='text', content_type='text/plain', headers={'Content-Type': 'application/json'})
+        c.call('POST', '/things', body='text', content_type=content_type, headers={'Content-Type': header})
+
+
+@pytest.mark.parametrize('header', ['Text/Plain; charset=utf-8', 'text/plain;charset=utf-8', ' TEXT/PLAIN ; charset=utf-8'])
+def test_one_type_in_content_type_and_the_header_is_one_request(make_client, requests, header):
+    c = make_client(replies=[(200, {'id': 1})])
+    c.call('POST', '/things', body='text', content_type='text/plain; charset=utf-8', headers={'Content-Type': header})
+    assert requests()[0].headers['content-type'] == header and requests()[0].content == b'text'
 
 
 def test_a_hidden_header_value_repeated_by_the_server_stays_hidden(make_client):

@@ -15,7 +15,7 @@ from .config import Config
 from .core import Core, CoreRuntime
 from .files import File
 from .results import error_from, strings, utcnow
-from .transport import HttpxTransport, Request, build_url, encode_body, first, media_type, plain, scalar
+from .transport import HttpxTransport, Request, build_url, encode_body, first, media_type, plain, same_type, scalar
 
 
 def check_arguments(as_user, session, body, multipart, raw, content_type):
@@ -269,7 +269,7 @@ class Client:
         if multipart is not None and declared is not None:
             raise ValueError('multipart sets its own Content-Type with the boundary; remove the Content-Type header '
                              '(a form with another type goes as raw=)')
-        if content_type is not None and declared is not None and content_type != declared:
+        if content_type is not None and declared is not None and not same_type(content_type, declared):
             raise ValueError('content_type and the Content-Type header disagree; set one of them')
         # The type chooses the encoding whichever argument sets it, so both give the same bytes.
         encoded, media = encode_body(body=body, multipart=multipart, raw=raw, content_type=content_type or declared)
