@@ -227,6 +227,16 @@ def test_help_depth_defines_named_schemas_level_by_level(tmp_path, make_client):
     assert json.loads(card.view('example', format='json')) == {'example': card.example}
 
 
+@pytest.mark.parametrize('identifier', ['api:GET /things', 'schema:Thing'])
+def test_json_help_is_the_complete_card_whatever_the_limits(tmp_path, make_client, identifier):
+    complete = json.loads(make_client(nested_contract(tmp_path)).describe(identifier).view(format='json'))
+    assert 'Avatar = {' in json.dumps(complete) and 'A|B|C|D|E|F|G' in json.dumps(complete)
+    card = make_client(nested_contract(tmp_path), view=LIMITED_VIEW).describe(identifier)  # depth 1 from [view.help]
+    for limits in ({}, {'depth': 0}, {'depth': 1, 'items': 2}):
+        assert json.loads(card.view(format='json', **limits)) == complete
+    assert 'Avatar = {' not in card.view(depth=1)  # text keeps its limits
+
+
 def test_inline_objects_take_levels_like_named_ones(tmp_path, make_client):
     c = make_client(nested_contract(tmp_path))
     obj = lambda **fields: {'type': 'object', 'properties': fields}

@@ -118,12 +118,14 @@ class Help:
         """The card with named schemas defined `depth` levels deep; fields selects card keys.
 
         A limit not passed comes from [view.help] of the configuration; 'all' lifts it.
+        format='json' is the complete card, without limits, like view(format='json') of a result.
         """
         o = self._limits.resolve(depth=depth, items=items, width=width, lines=lines)
+        if format == 'json':
+            card = self._build(None, None)
+            return json.dumps({k: card.get(k) for k in fields} if fields else card, ensure_ascii=False, indent=2)
         width, lines = o['width'], o['lines']
         card = self._build(o['depth'], o['items'])
-        if format == 'json':
-            return json.dumps({k: card.get(k) for k in fields} if fields else card, ensure_ascii=False, indent=2)
         out = [card['id'] + (f" — {card['summary']}" if card.get('summary') else '')]
         for key in fields or [k for k in card if k not in ('id', 'summary')]:
             text = card.get(key, '<missing>')

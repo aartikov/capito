@@ -174,7 +174,7 @@ The full schema with all keywords is in the contract file; validation uses exact
 | `describe id [id …]` | `client.describe(id)` for each; cards are separated by a blank line |
 | `--fields f …` | `help.view("f", …)` |
 | `--depth`, `--items`, `--width`, `--lines` | The same `view` parameters; without the option, from the config; `all` means no limit |
-| `--json` | `format="json"`; with several ids, an array |
+| `--json` | `format="json"`: the complete card, `--depth` and `--items` do not apply; with several ids, an array |
 | `--config`, `--env` | Configuration file and environment; by default the nearest `capito.toml` upwards from the working directory and `default_environment`. The client comes from the `client` key; without it, the base `capito.Client` |
 | `docs [usage\|extending]` | Documentation of the installed version; no config needed |
 
