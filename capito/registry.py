@@ -52,6 +52,23 @@ def path_param(api, name, description):
     return {'type': 'str', 'schema_from': (api, 'path', name), 'description': description}
 
 
+def is_file(schema):
+    """A schema of file content: format binary, or contentMediaType of OAS 3.1."""
+    return isinstance(schema, dict) and (schema.get('format') == 'binary' or 'contentMediaType' in schema)
+
+
+def form_example(schema, values):
+    """Form values as call(multipart=...) takes them: a file field is File('upload.bin'), a list of files a list of them."""
+    def field(part, value):
+        if is_file(part):
+            return File('upload.bin')
+        if part.get('type') == 'array' and is_file(part.get('items')):
+            return [File('upload.bin')] * max(len(value) if isinstance(value, list) else 1, 1)
+        return value
+    properties = schema.get('properties', {})
+    return {name: field(properties.get(name, {}), value) for name, value in values.items()}
+
+
 def query_example(parameters, values):
     """Query values as call() takes them: an object parameter spread into keys by its style.
 
@@ -273,6 +290,11 @@ class Registry:
             raise ValueError(f'{identifier} is absent from the help contract')
         return self.contract.expanded(self._source(op, location, name))
 
+    def _body_media(self, op):
+        """The request body type help describes: application/json if the operation has it, else its first type."""
+        content = self.contract.deref(op.spec.get('requestBody', {})).get('content', {})
+        return 'application/json' if 'application/json' in content else next(iter(content), None)
+
     def _source(self, op, location, name):
         """Schema behind a reference with its $refs intact, so help can print named objects."""
         if location == 'body':
@@ -297,9 +319,13 @@ class Registry:
             schema = self.schema(doc['schema_from'])
             row['schema'] = schema
             example = self.contract.example(schema)
-            if doc['schema_from'][1] == 'query' and isinstance(example, dict):
-                op = self.operation(doc['schema_from'][0])
+            op, location, *field = self.operation(doc['schema_from'][0]), *doc['schema_from'][1:]
+            if location == 'query' and isinstance(example, dict):
                 example = query_example([p for p in op.parameters if p['in'] == 'query'], example)
+            if location == 'body' and media_type(self._body_media(op) or '') == 'multipart/form-data':
+                whole = {'properties': {field[0]: schema}} if field else schema
+                example = form_example(whole, {field[0]: example} if field else example)
+                example = example[field[0]] if field else example
             if example not in ({}, None):
                 row.setdefault('example', example)
         return row
@@ -402,13 +428,11 @@ class Registry:
             value = self._media_example(content[media], schema)
             kind = media_type(media)
             if kind == 'multipart/form-data' and isinstance(value, dict):
-                properties = schema.get('properties', {})
-                values['multipart'] = {k: File('upload.bin') if properties.get(k, {}).get('format') == 'binary' else v
-                                       for k, v in value.items()}
-            elif (kind == 'application/json' or kind.endswith('+json') or isinstance(value, str)
+                values['multipart'] = form_example(schema, value)
+            elif (kind == 'application/json' or kind.endswith('+json') or (isinstance(value, str) and not is_file(schema))
                   or (kind == 'application/x-www-form-urlencoded' and isinstance(value, dict))):
                 values['body'] = value
-            else:  # call() encodes JSON, forms and text only; any other body is ready bytes
+            else:  # call() encodes JSON, forms and text only; any other body, a file's included, is ready bytes
                 values['raw'] = f'<{kind} body>'.encode()
             if media != 'application/json' and 'multipart' not in values:
                 values['content_type'] = media

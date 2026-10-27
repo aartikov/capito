@@ -4,6 +4,7 @@ import re
 
 import pytest
 
+from capito.files import File
 from capito.registry import body_param, command, query_param
 from helpers import AccountsClient, LIMITED_VIEW, schema
 
@@ -233,6 +234,21 @@ def test_a_command_query_example_spreads_an_object_parameter_like_call_needs(tmp
     assert eval(example, {'client': type('C', (), {'things': Things()})}).validation['backend_api']['request']['status'] == 'valid'
 
 
+def test_a_command_form_example_sends_files_not_their_names(tmp_path, make_client):
+    c = make_client(varied_contract(tmp_path))
+
+    class Photos:
+        @command('Upload', api=('api:POST /photos',), parameters={'form': body_param('api:POST /photos'),
+                                                                   'cover': {'schema_from': ('api:POST /photos', 'body', 'cover')}})
+        def upload(self, form, cover, *, as_user=None, validate=None):
+            pass
+
+    c.core.registry.register('photos', Photos())
+    assert c.describe('command:photos.upload').example == (
+        "client.photos.upload(form={'caption': 'example', 'cover': File('upload.bin'), 'pages': [File('upload.bin')]}, "
+        "cover=File('upload.bin'))")
+
+
 def nested_contract(tmp_path):
     """Things reference Owner, Owner references Avatar; Empty is closed and has no fields."""
     path = schema(tmp_path)
@@ -460,6 +476,10 @@ def varied_contract(tmp_path):
             {'in': 'query', 'name': 'range', 'required': True, 'schema': obj({'from': {'type': 'integer'}})},
             {'in': 'query', 'name': 'box', 'required': True, 'style': 'spaceDelimited', 'explode': False,
              'schema': obj({'w': {'type': 'integer'}})}]}},
+        '/photos': {'post': body('multipart/form-data', {'schema': obj({
+            'caption': {'type': 'string'}, 'cover': {'type': 'string', 'format': 'binary'},
+            'pages': {'type': 'array', 'items': {'type': 'string', 'format': 'binary'}}})})},
+        '/blob': {'post': body('application/octet-stream', {'schema': {'type': 'string', 'format': 'binary'}})},
         '/unique': {'post': body('application/json', {'schema': obj({
             'tags': {'type': 'array', 'minItems': 3, 'uniqueItems': True, 'items': {'type': 'string', 'maxLength': 7}},
             'ids': {'type': 'array', 'minItems': 2, 'uniqueItems': True, 'items': {'type': 'string', 'format': 'uuid'}},
@@ -472,11 +492,13 @@ def varied_contract(tmp_path):
     return path
 
 
-def test_help_examples_run_as_they_are_and_satisfy_the_contract(tmp_path, make_client, respx_mock):
+def test_help_examples_run_as_they_are_and_satisfy_the_contract(tmp_path, make_client, respx_mock, monkeypatch):
     c = make_client(varied_contract(tmp_path), validate=True)
     respx_mock.route(host='api.test').respond(200)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / 'upload.bin').write_bytes(b'\x89PNG')  # the placeholder file of examples, as a user would put it
     examples = {op.id: c.describe(op.id).example for op in c.operations(kind='api')}
-    statuses = {identifier: eval(example, {'client': c}).validation['backend_api']['request']['status']
+    statuses = {identifier: eval(example, {'client': c, 'File': File}).validation['backend_api']['request']['status']
                 for identifier, example in examples.items()}  # no example raises
     assert {k: v for k, v in statuses.items() if v != 'valid'} == {
         'api:POST /pattern': 'invalid', 'api:POST /xml': 'invalid', 'api:GET /ranged': 'invalid'}
@@ -487,5 +509,10 @@ def test_help_examples_run_as_they_are_and_satisfy_the_contract(tmp_path, make_c
     # An object in the query is spread into the keys call() sends; a style it cannot spread is a placeholder.
     assert examples['api:GET /filtered'] == (
         "client.call('GET', '/filtered', query={'filter[status]': 'example', 'filter[limit]': 2, 'point': 'x,1,y,true'})")
+    # A file is File('upload.bin'), in a field or in a list; a file body is ready bytes, not the text of a name.
+    assert examples['api:POST /photos'] == ("client.call('POST', '/photos', multipart={'caption': 'example', "
+                                            "'cover': File('upload.bin'), 'pages': [File('upload.bin')]})")
+    assert examples['api:POST /blob'] == (
+        "client.call('POST', '/blob', raw=b'<application/octet-stream body>', content_type='application/octet-stream')")
     assert examples['api:GET /ranged'] == (
         "client.call('GET', '/ranged', query={'from': 1, 'box': '<box: an object, encode it by style spaceDelimited, explode false>'})")
