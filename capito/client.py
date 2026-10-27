@@ -12,7 +12,7 @@ from .config import Config
 from .core import Core, CoreRuntime
 from .files import File
 from .results import error_from, strings, utcnow
-from .transport import HttpxTransport, Request, build_url, encode_body, first
+from .transport import HttpxTransport, Request, build_url, encode_body, first, scalar
 
 
 def check_arguments(as_user, session, body, multipart, raw, content_type):
@@ -245,7 +245,8 @@ class Client:
         if media and header(headers, 'content-type') is None:
             headers['Content-Type'] = media
         url = self.core.config.base_url + build_url(route, path or {}, query or {})
-        return Request(method, url, headers, encoded, header(headers, 'content-type'))
+        return Request(method, url, headers, encoded, header(headers, 'content-type'),
+                       {name: scalar(value) for name, value in (path or {}).items()})
 
     def _send(self, request, route, account, result, *, can_refresh, validate):
         """One attempt, plus one retry after a successful refresh; returns the response and final account."""

@@ -123,16 +123,22 @@ def content_types(value):
             yield from content_types(child)
 
 
-def request_adapter(request, route):
-    url = urlsplit(request.url)
+def request_adapter(request, route, server):
+    """The request as openapi-core reads it, with the operation already known.
+
+    The route and its path values come from call() through openapi-core's path_pattern protocol, so the operation
+    is never looked up by the transport URL, and a path value is checked as given, not URL-encoded. The route sits
+    under the contract's server: the environment's base_url plays no part in finding the operation.
+    """
+    url, location = urlsplit(request.url), urlsplit(server)
     # name=value pairs split as servers do; SimpleCookie drops the whole header at a character it dislikes.
     cookie = next((v for k, v in request.headers.items() if k.lower() == 'cookie'), '')
     cookies = [tuple(part.strip() for part in pair.split('=', 1)) for pair in cookie.split(';') if '=' in pair]
     return SimpleNamespace(
-        host_url=f'{url.scheme}://{url.netloc}', path=url.path,
-        full_url_pattern=f'{url.scheme}://{url.netloc}{route}', method=request.method.lower(),
+        host_url=f'{location.scheme}://{location.netloc}', path=url.path,
+        path_pattern=location.path.rstrip('/') + route, method=request.method.lower(),
         parameters=RequestParameters(query=MultiDict(parse_qsl(url.query, keep_blank_values=True)),
-                                     header=Headers(request.headers), cookie=MultiDict(cookies)),
+                                     header=Headers(request.headers), cookie=MultiDict(cookies), path=dict(request.path or {})),
         content_type=(request.content_type or '').lower(), body=request.body)
 
 
@@ -170,6 +176,15 @@ class Validator:
                 self.error = f'{type(exc).__name__}: {str(exc)[:500]}'
             self.loaded = True
 
+    def _server(self, op, route):
+        """The first server the contract gives the operation, '/' when it gives none, as OpenAPI defines."""
+        path_item = self.contract.deref(self.contract.document['paths'][route])
+        servers = op.spec.get('servers', path_item.get('servers', self.contract.document.get('servers'))) or [{'url': '/'}]
+        target = servers[0]['url']
+        for name, variable in servers[0].get('variables', {}).items():
+            target = target.replace('{' + name + '}', str(variable['default']))
+        return urljoin(self.base_url + '/', target)
+
     def check(self, request, route, response=None, *, phase):
         self._load()
         if self.error:
@@ -179,23 +194,7 @@ class Validator:
             return outcome('not_described', reason='Operation absent from contract')
         if phase == 'response' and (response is None or not response.status):
             return outcome('not_run', reason='No HTTP response')
-        adapted = request_adapter(request, route)
-        # The environment chooses the transport host. Validate against the same
-        # operation at the contract's declared server (often a documentation mock).
-        path_item = self.contract.deref(self.contract.document['paths'][route])
-        servers = op.spec.get('servers', path_item.get('servers', self.contract.document.get('servers', [])))
-        if servers:
-            server = servers[0]
-            target = server['url']
-            for name, variable in server.get('variables', {}).items():
-                target = target.replace('{' + name + '}', str(variable['default']))
-            target = urljoin(self.base_url + '/', target).rstrip('/')
-            actual_prefix = urlsplit(self.base_url).path.rstrip('/')
-            suffix = adapted.path[len(actual_prefix):] if actual_prefix else adapted.path
-            location = urlsplit(target)
-            adapted.host_url = f'{location.scheme}://{location.netloc}'
-            adapted.path = location.path.rstrip('/') + suffix
-            adapted.full_url_pattern = target + route
+        adapted = request_adapter(request, route, self._server(op, route))
         try:
             errors = list(self.api.iter_request_errors(adapted)) if phase == 'request' else list(self.api.iter_response_errors(adapted, response_adapter(response)))
             if errors:

@@ -23,6 +23,7 @@ class Request:
     headers: dict
     body: bytes | None = None
     content_type: str | None = None
+    path: dict | None = None              # the route's path values as text, before URL encoding; for validation
 
 
 @dataclass

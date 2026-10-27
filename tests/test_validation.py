@@ -267,3 +267,31 @@ def test_bodies_of_any_json_type_are_checked_as_json(tmp_path, make_client):
     bad = c.call('POST', '/things', body={'id': 'x'}, content_type='application/vnd.test+json').validation['backend_api']
     assert good['request']['status'] == good['response']['status'] == 'valid'
     assert bad['request']['status'] == bad['response']['status'] == 'invalid'
+
+
+@pytest.mark.parametrize('base_url', ['http://api.test/api/v1', 'http://api.test/api/v1/'])
+def test_a_base_url_with_a_path_needs_no_servers_in_the_contract(make_client, base_url):
+    c = make_client(replies=[(200, {'id': 1}), (200, {'id': 1})], validate=True, base_url=base_url.rstrip('/'))
+    described = c.call('POST', '/things', body={'id': 1})
+    assert described.validation['backend_api'] == {'request': {'status': 'valid', 'errors': []},
+                                                   'response': {'status': 'valid', 'errors': []}}
+    assert c.call('GET', '/others').validation['backend_api']['request']['status'] == 'not_described'
+
+
+@pytest.mark.parametrize('name, schema, value, issue', [
+    ('email', {'type': 'string', 'format': 'email'}, 'alice@example.test', None),
+    ('email', {'type': 'string', 'format': 'email'}, 'not-an-email', 'path.email format'),
+    ('name', {'type': 'string', 'maxLength': 4}, 'café', None),
+    ('name', {'type': 'string', 'maxLength': 4}, 'cafés', 'path.name maxLength'),
+    ('name', {'type': 'string', 'pattern': '^[a-z]+/[a-z]+$'}, 'a/b', None),
+    ('name', {'type': 'integer', 'maximum': 10}, 7, None),
+])
+def test_a_path_value_is_checked_as_given_not_url_encoded(tmp_path, make_client, name, schema, value, issue):
+    backend = tmp_path / 'paths.json'
+    backend.write_text(json.dumps({'openapi': '3.0.3', 'info': {'title': 'test', 'version': '1'}, 'paths': {
+        f'/users/{{{name}}}': {'get': {'parameters': [{'name': name, 'in': 'path', 'required': True, 'schema': schema}],
+                                       'responses': {'200': {'description': 'ok'}}}}}}))
+    c = make_client(backend, replies=[(200, None)], validate=True)
+    result = c.call('GET', f'/users/{{{name}}}', path={name: value})
+    expected = 'valid' if issue is None else f'request invalid: {issue}'
+    assert result.view('validation').splitlines()[-1] == f'  backend_api: {expected}'
