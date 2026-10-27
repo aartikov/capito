@@ -130,20 +130,29 @@ def scalar(value):
     return str(value).lower() if isinstance(value, bool) else str(value)
 
 
+def plain(kind, name, value):
+    """A value that is one piece of text in the address: None and containers would go as Python text."""
+    if value is None:
+        hint = "pass a value" if kind == "Path" else "leave the key out to send none"
+        raise TypeError(f"{kind} parameter {name!r} is None: {hint}")
+    if isinstance(value, dict):
+        raise TypeError(f"{kind} parameter {name!r}: encode objects explicitly, e.g. as separate keys")
+    if isinstance(value, (list, tuple, set)):
+        raise TypeError(f"{kind} parameter {name!r}: a {type(value).__name__} is not one value"
+                        + ("; a list repeats a query key" if kind == "Query" else ""))
+    return scalar(value)
+
+
 def build_url(route, path, query):
     """Fill {name} templates and encode query; lists repeat the key, other shapes are explicit."""
     for name, value in path.items():
-        route = route.replace("{" + name + "}", quote(scalar(value), safe=""))
+        route = route.replace("{" + name + "}", quote(plain("Path", name, value), safe=""))
     if "{" in route:
         raise ValueError("Path parameters missing")
     pairs = []
     for name, value in query.items():
-        if isinstance(value, dict):
-            raise TypeError(f"Query parameter {name!r}: encode objects explicitly, e.g. as separate keys")
-        if isinstance(value, (list, tuple)):
-            pairs.extend((name, scalar(v)) for v in value)
-        else:
-            pairs.append((name, scalar(value)))
+        values = value if isinstance(value, (list, tuple)) else [value]
+        pairs.extend((name, plain("Query", name, v)) for v in values)
     return route + ("?" + urlencode(pairs) if pairs else "")
 
 

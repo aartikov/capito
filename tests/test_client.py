@@ -215,3 +215,25 @@ def test_a_form_with_a_content_type_header_is_an_error_not_a_form_without_bounda
     assert requests() == []  # nothing was sent
     c.call('POST', '/things', multipart={'purpose': 'x'})
     assert re.fullmatch(r'multipart/form-data; boundary=\S+', requests()[0].headers['content-type'])
+
+
+@pytest.mark.parametrize('path, query, message', [
+    ({'id': None}, {}, "Path parameter 'id' is None: pass a value"),
+    ({'id': ['a', 'b']}, {}, "Path parameter 'id': a list is not one value"),
+    ({'id': {'a': 1}}, {}, "Path parameter 'id': encode objects explicitly"),
+    ({'id': 'a'}, {'limit': None}, "Query parameter 'limit' is None: leave the key out"),
+    ({'id': 'a'}, {'tag': ['a', None]}, "Query parameter 'tag' is None"),
+    ({'id': 'a'}, {'f': [{'x': 1}]}, "Query parameter 'f': encode objects explicitly"),
+    ({'id': 'a'}, {'f': [[1, 2]]}, "Query parameter 'f': a list is not one value; a list repeats a query key"),
+])
+def test_a_value_the_address_cannot_hold_is_an_error_not_python_text(make_client, requests, path, query, message):
+    c = make_client()
+    with pytest.raises(TypeError, match=re.escape(message)):
+        c.call('GET', '/things/{id}', path=path, query=query)
+    assert requests() == []
+
+
+def test_scalars_and_lists_of_them_still_go_as_text(make_client, requests):
+    c = make_client(replies=[(200, {'id': 1})])
+    c.call('GET', '/things/{id}', path={'id': 7}, query={'on': True, 'share': 0.5, 'tag': ['a', 'b'], 'q': 'x y'})
+    assert str(requests()[0].url) == 'http://api.test/things/7?on=true&share=0.5&tag=a&tag=b&q=x+y'
