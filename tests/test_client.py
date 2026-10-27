@@ -262,3 +262,22 @@ def test_a_route_goes_after_the_path_of_base_url(make_client, requests):
     c = make_client(replies=[(200, {'id': 1})], base_url='http://api.test/api')
     c.call('GET', '/things', query={'page': 2})
     assert str(requests()[0].url) == 'http://api.test/api/things?page=2'
+
+
+def test_header_values_go_as_text_like_query_values(make_client, requests):
+    c = make_client(replies=[(200, {'id': 1})])
+    result = c.call('GET', '/things', headers={'X-Page': 2, 'X-Dry-Run': True, 'X-Share': 0.5, 'X-Raw': b'r'})
+    sent = requests()[0].headers
+    assert (sent['x-page'], sent['x-dry-run'], sent['x-share'], sent['x-raw']) == ('2', 'true', '0.5', 'r')
+    assert result.request['headers']['X-Page'] == '2'
+
+
+@pytest.mark.parametrize('value, exception, message', [
+    (None, TypeError, "Header parameter 'X-Name' is None"),
+    (['a'], TypeError, "Header parameter 'X-Name': a list is not one value"),
+    ('Алиса', ValueError, "Header parameter 'X-Name': a header value is ASCII text"),
+])
+def test_a_header_value_http_cannot_carry_is_an_error_naming_the_header(make_client, requests, value, exception, message):
+    with pytest.raises(exception, match=re.escape(message)):
+        make_client().call('GET', '/things', headers={'X-Name': value})
+    assert requests() == []

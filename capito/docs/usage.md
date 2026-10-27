@@ -201,7 +201,7 @@ created = client.call("POST", "/items", body={"name": "Sample item"}, as_user="a
 | `multipart` | A `multipart/form-data` form: strings, numbers, bool and `File(...)`; a list repeats the part. The type with its boundary is set by `multipart` itself: `content_type` or a `Content-Type` header with it is a `ValueError` |
 | `raw` | Ready body bytes, for example broken JSON; the type is set by `content_type` |
 | `content_type` | Type of `body`/`raw`, sent as `Content-Type`. The same type in `headers` has the same effect; different types in both are a `ValueError` |
-| `headers` | Extra headers. An explicit `Authorization` replaces the account's authorization and disables refresh |
+| `headers` | Extra headers: ASCII text, numbers and bool (sent as `2`, `true`) or bytes; `None`, an object or non-ASCII text is an error. An explicit `Authorization` replaces the account's authorization and disables refresh |
 | `validate` | `True`/`False`; `None` means as set on the client |
 | `session` | A snapshot from `client.accounts.session("alice")` instead of `as_user`; it is not updated |
 | `auto_refresh` | On by default; `False` gives the raw 401 without refresh |

@@ -15,7 +15,7 @@ from .config import Config
 from .core import Core, CoreRuntime
 from .files import File
 from .results import error_from, strings, utcnow
-from .transport import HttpxTransport, Request, build_url, encode_body, first, media_type, scalar
+from .transport import HttpxTransport, Request, build_url, encode_body, first, media_type, plain, scalar
 
 
 def check_arguments(as_user, session, body, multipart, raw, content_type):
@@ -71,6 +71,17 @@ def decode(response, result):
         result.body = text()
     else:
         result.body = response.content
+
+
+def header_value(name, value):
+    """A header value as text: numbers and bool like query values; ASCII only, as HTTP headers are."""
+    if isinstance(value, bytes):
+        return value
+    text = plain('Header', name, value)
+    if not text.isascii():
+        raise ValueError(f'Header parameter {name!r}: a header value is ASCII text; encode other text explicitly, '
+                         'e.g. percent-encoded, or pass bytes')
+    return text
 
 
 NO_ACCOUNTS = ("This client has no accounts: add commands['accounts'] = capito.AccountsCommands "
@@ -253,7 +264,7 @@ class Client:
         return result
 
     def _build_request(self, method, route, path, query, headers, body, multipart, raw, content_type):
-        headers = dict(headers or {})
+        headers = {name: header_value(name, value) for name, value in (headers or {}).items()}
         declared = header(headers, 'content-type')
         if multipart is not None and declared is not None:
             raise ValueError('multipart sets its own Content-Type with the boundary; remove the Content-Type header '
