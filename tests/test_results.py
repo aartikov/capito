@@ -1,6 +1,9 @@
 """results.py: Secrets, Result, CompoundResult and Account."""
 import hashlib
 import json
+import re
+
+import pytest
 
 from capito.client import Client
 from capito.core import Core
@@ -41,9 +44,8 @@ def test_project_policy_hides_its_keys_without_affecting_other_clients(make_clie
     assert signed.body['service_signature'] == 'sig'  # data for logic stays raw
 
 
-def test_masking_covers_keys_words_patterns_and_known_values():
-    policy = Secrets.http().extend(key_words=('token', 'password', 'secret'))
-    result = Result(policy=policy, body={'accessToken': 'a', 'refresh_token': 'b', 'password': 'p', 'name': 'visible',
+def test_masking_covers_keys_values_and_known_values():
+    result = Result(policy=Secrets.http(), body={'accessToken': 'a', 'refresh_token': 'b', 'password': 'p', 'name': 'visible',
                                          'note': 'sent Bearer abc.def', 'echo': 'opaque value inside'},
                     headers={'Authorization': 'Bearer a'}, errors=['opaque value'], secrets=['opaque value'])
     safe = json.loads(result.view(format='json'))
@@ -59,7 +61,9 @@ def test_core_preset_hides_common_credentials_and_keeps_counters():
     jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl'
     result = Result(policy=Secrets.http(),
                     body={'accessToken': 'a', 'clientSecret': 's', 'sessionsCount': 3, 'tokensCount': 2,
-                          'session': 'sess', 'csrf': 'c', 'error': f'expired token {jwt}',
+                          'session': 'sess', 'csrf': 'c', 'error': f'expired token {jwt}', 'private_key': 'pk',
+                          'tokens': {'access': 'a2'}, 'credentials': {'user': 'u'},
+                          'usage': {'prompt_tokens': 12, 'total_tokens': 42, 'completion_tokens_details': {'reasoning_tokens': 5}},
                           'download': 'https://cdn.example.test/f.png?X-Amz-Signature=sig&api_key=k&size=2'},
                     request={'url': 'http://x/items?token=t1&page=2&q=Bearer leaked',
                              'headers': {'Cookie': 'c', 'X-API-Key': 'k', 'X-CSRF-Token': 'c'}})
@@ -68,7 +72,10 @@ def test_core_preset_hides_common_credentials_and_keeps_counters():
                                'headers': {'Cookie': '<redacted>', 'X-API-Key': '<redacted>', 'X-CSRF-Token': '<redacted>'}}
     body = safe['body']
     assert body['accessToken'] == body['clientSecret'] == body['session'] == body['csrf'] == '<redacted>'
-    assert body['sessionsCount'] == 3 and body['tokensCount'] == '<redacted>'  # a word matches inside names
+    assert body['private_key'] == body['tokens'] == body['credentials'] == '<redacted>'
+    # token marks a key that ends with it; counters of tokens are not secrets
+    assert body['sessionsCount'] == 3 and body['tokensCount'] == 2
+    assert body['usage'] == {'prompt_tokens': 12, 'total_tokens': 42, 'completion_tokens_details': {'reasoning_tokens': 5}}
     assert body['error'] == 'expired token <redacted>'
     assert body['download'] == 'https://cdn.example.test/f.png?X-Amz-Signature=sig&api_key=<redacted>&size=2'
 
@@ -90,7 +97,18 @@ def test_extended_policy_hides_signed_url_parameters_and_lists_its_rules():
     result = Result(policy=policy, body={'download': 'https://cdn.example.test/f.png?X-Amz-Signature=sig&size=2'})
     assert json.loads(result.view(format='json'))['body']['download'] == 'https://cdn.example.test/f.png?X-Amz-Signature=<redacted>&size=2'
     rules = str(policy)
-    assert rules.splitlines()[0].startswith('keys: ') and 'xamzsignature' in rules and 'key_words: token' in rules
+    keys, values = rules.splitlines()
+    assert keys.startswith('keys: ') and 'xamzsignature' in keys and '/token$/' in keys
+    assert values.startswith('values: ') and 'bearer' in values
+
+
+def test_key_rules_are_exact_keys_or_expressions_and_value_rules_are_expressions():
+    policy = Secrets(keys=('pin.*', re.compile('^otp')))
+    assert [policy.hides(k) for k in ('pin.*', 'pincode', 'otp_code', 'OTP-Attempt', 'hotpath')] == [True, False, True, True, False]
+    with pytest.raises(TypeError, match='re.compile'):
+        Secrets(values=('itm_secret',))
+    with pytest.raises(TypeError, match='exact key'):
+        Secrets(keys=(42,))
 
 
 def test_results_are_not_dicts_and_require_a_policy():

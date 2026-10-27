@@ -87,7 +87,7 @@ def test_every_limit_names_itself_and_all_lifts_it():
 
 
 def test_json_keeps_nesting_ignores_limits_and_masks():
-    r = Result(policy=Secrets.http().extend(key_words=('token',)), success=True, status=200,
+    r = Result(policy=Secrets.http(), success=True, status=200,
                body={'accessToken': 'secret', 'items': [{'id': i, 'text': 'y' * 200} for i in range(7)]})
     projected = json.loads(r.view('body.items[].id', 'body.accessToken', 'body.absent', format='json'))
     assert projected == {'body': {'items': [{'id': i} for i in range(7)], 'accessToken': '<redacted>'}}

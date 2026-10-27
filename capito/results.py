@@ -17,44 +17,51 @@ def normalized_key(key):
 
 
 class Secrets:
-    """What view() hides: field names, words inside field names, text patterns, plus known secret values.
+    """What view() hides: rules for keys (names of fields, headers and query parameters) and for text, plus known values.
 
-    keys match a field, header or query parameter name exactly; key_words match a part of the name, so
-    'token' also hides 'tokensCount' — deliberately more than needed. Names ignore case, '-' and '_'.
+    keys: a str is an exact key; re.compile(...) is searched in the key. Both see the key in lower case without '-'
+    and '_': 'X-API-Key' is 'xapikey', and re.compile('token$') hides access_token and refreshToken, not prompt_tokens.
+    A hidden key hides its whole value. values: re.compile(...) searched in any text; a match is cut out.
     A project declares its policy once as a class attribute of its Client; results receive it at creation.
     """
-    def __init__(self, keys=(), key_words=(), patterns=()):
-        self.keys = frozenset(normalized_key(k) for k in keys)
-        self.key_words = tuple(dict.fromkeys(normalized_key(w) for w in key_words))
-        self.patterns = tuple(dict.fromkeys(patterns))
-        self._compiled = [re.compile(p) for p in self.patterns]
+    def __init__(self, keys=(), values=()):
+        for rule in keys:
+            if not isinstance(rule, (str, re.Pattern)):
+                raise TypeError(f'Secrets key rule {rule!r}: an exact key (str) or re.compile(...)')
+        for rule in values:
+            if not isinstance(rule, re.Pattern):
+                raise TypeError(f'Secrets value rule {rule!r}: re.compile(...); a known secret value goes to result.add_secrets()')
+        self.keys = tuple(dict.fromkeys(normalized_key(r) if isinstance(r, str) else r for r in keys))
+        self.values = tuple(dict.fromkeys(values))
+        self._exact = frozenset(r for r in self.keys if isinstance(r, str))
+        self._searched = tuple(r for r in self.keys if isinstance(r, re.Pattern))
 
     @classmethod
     def http(cls):
         """Credentials common to any HTTP API.
 
-        Exact names follow Sentry's DEFAULT_DENYLIST (auth headers, cookies, sessions, CSRF, API keys);
-        words cover tokens, passwords, secrets and API keys under any name (x-goog-api-key, x-rapidapi-key);
-        patterns catch bearer tokens and JWTs in text.
+        Exact keys follow Sentry's DEFAULT_DENYLIST (auth headers, cookies, sessions, CSRF, credentials);
+        keys ending in token, apikey or privatekey follow GitLab's log filter (refreshToken, x-goog-api-key,
+        but not prompt_tokens); password, passwd and secret anywhere in a key; bearer tokens and JWTs in text.
         """
-        return cls(keys=('authorization', 'proxy-authorization', 'cookie', 'set-cookie', 'x-api-key', 'api_key', 'apikey',
-                         'session', 'sessionid', 'csrf', 'csrftoken', 'x-csrf-token', 'x-xsrf-token'),
-                   key_words=('token', 'password', 'passwd', 'secret', 'apikey'),
-                   patterns=(r'(?i)(?<=bearer\s)[^\s"<>]+', r'\beyJ[\w-]+\.[\w-]+\.[\w-]+'))
+        return cls(keys=('authorization', 'proxy-authorization', 'cookie', 'set-cookie', 'session', 'sessionid', 'csrf',
+                         'credentials', 'tokens', re.compile('token$'), re.compile('apikey$'), re.compile('privatekey$'),
+                         re.compile('password'), re.compile('passwd'), re.compile('secret')),
+                   values=(re.compile(r'(?i)(?<=bearer\s)[^\s"<>]+'), re.compile(r'\beyJ[\w-]+\.[\w-]+\.[\w-]+')))
 
-    def extend(self, *, keys=(), key_words=(), patterns=()):
+    def extend(self, *, keys=(), values=()):
         """A stricter policy: these rules are added, nothing is removed."""
-        return Secrets(tuple(self.keys) + tuple(keys), self.key_words + tuple(key_words), self.patterns + tuple(patterns))
+        return Secrets(self.keys + tuple(keys), self.values + tuple(values))
 
     def hides(self, key):
-        normalized = normalized_key(key)
-        return normalized in self.keys or any(word in normalized for word in self.key_words)
+        key = normalized_key(key)
+        return key in self._exact or any(rule.search(key) for rule in self._searched)
 
     def text(self, value, values=()):
         for secret in sorted({s for s in values if isinstance(s, str) and s}, key=len, reverse=True):
             value = value.replace(secret, REDACTED)
-        for pattern in self._compiled:
-            value = pattern.sub(REDACTED, value)
+        for rule in self.values:
+            value = rule.sub(REDACTED, value)
         return QUERY_PARAMETER.sub(lambda m: f'{m[1]}={REDACTED}' if m[2] and self.hides(unquote(m[1])) else m[0], value)
 
     def redact(self, value, values=(), key=''):
@@ -76,9 +83,9 @@ class Secrets:
         return value
 
     def view(self):
-        """The rules in force, one kind per line."""
-        return '\n'.join([f"keys: {', '.join(sorted(self.keys))}", f"key_words: {', '.join(self.key_words)}",
-                          f"patterns: {', '.join(self.patterns)}"])
+        """The rules in force: exact keys as they are, regular expressions between slashes."""
+        shown = lambda rules: ', '.join(f'/{r.pattern}/' if isinstance(r, re.Pattern) else r for r in rules)
+        return f'keys: {shown(self.keys)}\nvalues: {shown(self.values)}'
 
     def __repr__(self):
         return self.view()

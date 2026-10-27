@@ -222,16 +222,18 @@ The project does not access underscore attributes; record storage is internal.
 
 ## Secrets
 
-`Secrets(keys, key_words, patterns)` is declared in `Core(secrets=...)` of the project class, so a script cannot weaken the policy; `extend()` only adds rules. Names are compared ignoring case, `-` and `_`.
+`Secrets(keys, values)` is declared in `Core(secrets=...)` of the project class, so a script cannot weaken the policy; `extend()` only adds rules. A regular expression is always `re.compile(...)`: a string is never read as one.
 
 | Rule | What it hides | When to use |
 | --- | --- | --- |
-| `keys` | a field, header or query parameter with exactly this name | the name may also appear in a harmless value: `code`, `session` |
-| `key_words` | a field whose name contains the word | `token` hides `accessToken` and `X-Token`, but also `tokensCount`: an extra mask is deliberately better than a leak |
-| `patterns` | a part of any string value matching a regular expression | a nameless secret inside text |
+| `keys`: a string | the whole value of a field, header or query parameter with exactly this key | the key may also appear in a harmless value: `code`, `session` |
+| `keys`: `re.compile(...)` | the whole value of every key the expression is found in | a family of keys: `re.compile('token$')` hides `access_token`, `refreshToken` and `X-Auth-Token`, not `prompt_tokens` or `tokenizer` |
+| `values`: `re.compile(...)` | the matching part of any text | a secret without a key inside text: an API key format such as `re.compile(r'itm_[A-Za-z0-9]{32}')` |
 | `result.add_secrets(value)` | a specific value everywhere in the result's output | the command got a secret and knows its value: a sign-in token, a one-time code |
 
-`Secrets.http()` is the core preset: authorization headers, cookies, sessions, CSRF and API keys (exact names follow Sentry's `DEFAULT_DENYLIST`), the words `token`, `password`, `passwd`, `secret`, `apikey` (so `x-goog-api-key` and `x-rapidapi-key` too), and the patterns `Bearer …` and JWT. The value of every request header the policy hides is also hidden everywhere in that result: a server that repeats a key in its error message does not reveal it. Query parameters in addresses (`?api_key=…`, signed links) are hidden by the same name rules; the parameter name stays visible. A generic name such as `key` is not in the preset, since many APIs use it for plain values; an API that passes its key as `?key=…` adds it: `Secrets.http().extend(keys=('key',))`. `print(client.core.secrets)` shows the effective rules. The policy does not hide personal data such as phone numbers and names.
+Key rules see the key in lower case without `-` and `_`: `X-API-Key` is `xapikey` for both a string and an expression, so write them in lower case.
+
+`Secrets.http()` is the core preset: exact keys of authorization headers, cookies, sessions, CSRF, `credentials` and `tokens` (after Sentry's `DEFAULT_DENYLIST`), keys ending in `token`, `apikey` and `privatekey` (after GitLab's log filter: `x-goog-api-key` and `x-rapidapi-key` too), keys containing `password`, `passwd` and `secret`, and the values `Bearer …` and JWT. A key with the word in its middle, such as `token_value`, is not hidden; a project that has one adds it. The value of every request header the policy hides is also hidden everywhere in that result: a server that repeats a key in its error message does not reveal it. Query parameters in addresses (`?api_key=…`, signed links) are hidden by the same key rules; the parameter name stays visible. A generic key such as `key` is not in the preset, since many APIs use it for plain values; an API that passes its key as `?key=…` adds it: `Secrets.http().extend(keys=('key',))`. `print(client.core.secrets)` shows the effective rules. The policy does not hide personal data such as phone numbers and names.
 
 ## Request execution
 
