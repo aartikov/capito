@@ -187,3 +187,24 @@ def test_the_reason_is_shown_for_a_status_without_violations(tmp_path, make_clie
     c = make_client(items_contract(tmp_path), tmp_path / 'missing.yaml', [(200, {'name': 'a', 'status': 'b', 'owner': 'c'})], True)
     line = c.call('GET', '/items', query={'limit': 10}).view('validation').splitlines()[-1]
     assert line.startswith('  analyst_api: unavailable (') and 'missing.yaml' in line
+
+
+def test_an_undecodable_body_is_reported_without_its_content(make_client):
+    broken_reply = lambda request: httpx.Response(200, headers={'Content-Type': 'application/json'},
+                                                  content=b'{"access_token":"RESPONSE-SENTINEL",x')
+    c = make_client(replies=[broken_reply], validate=True)
+    result = c.call('POST', '/things', raw=b'{"password":"REQUEST-SENTINEL",broken', content_type='application/json')
+    phases = result.validation['backend_api']
+    assert phases['request']['status'] == phases['response']['status'] == 'invalid'
+    # Only the validation report: the summary line and body of a broken response are the body as received.
+    section = result.view('validation').split('\n', 1)[1]
+    for shown in (json.dumps(result.validation), section, result.view('validation', format='json')):
+        assert 'SENTINEL' not in shown
+    assert 'not valid application/json' in phases['request']['errors'][0]['message'].lower()
+    assert 'line 1 column' in phases['request']['errors'][0]['message']
+
+
+def test_a_body_that_is_not_utf8_is_invalid_not_unavailable(make_client):
+    c = make_client(replies=[(200, {'id': 1})], validate=True)
+    request = c.call('POST', '/things', raw=b'\xff\xfe{"id": 1}', content_type='application/json').validation['backend_api']['request']
+    assert request['status'] == 'invalid'

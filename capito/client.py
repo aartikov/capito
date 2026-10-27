@@ -234,8 +234,12 @@ class Client:
         return result
 
     def _build_request(self, method, route, path, query, headers, body, multipart, raw, content_type):
-        encoded, media = encode_body(body=body, multipart=multipart, raw=raw, content_type=content_type)
         headers = dict(headers or {})
+        declared = header(headers, 'content-type')
+        if content_type is not None and declared is not None and content_type != declared:
+            raise ValueError('content_type and the Content-Type header disagree; set one of them')
+        # The type chooses the encoding whichever argument sets it, so both give the same bytes.
+        encoded, media = encode_body(body=body, multipart=multipart, raw=raw, content_type=content_type or declared)
         if media and header(headers, 'content-type') is None:
             headers['Content-Type'] = media
         url = self.core.config.base_url + build_url(route, path or {}, query or {})

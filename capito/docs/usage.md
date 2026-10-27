@@ -196,10 +196,10 @@ created = client.call("POST", "/items", body={"name": "Sample item"}, as_user="a
 | --- | --- |
 | `as_user` | Local ID, alias or the value of the project's lookup field (for example a phone number); anonymous without it. Requires an `accounts` set |
 | `path`, `query` | Route template and query string: scalars and lists |
-| `body` | JSON body |
+| `body` | The body, encoded by its type: JSON without a type and for JSON types (`application/json; charset=utf-8`, `application/problem+json`); a dict as a form for `application/x-www-form-urlencoded`; a `str` as UTF-8 text for any other type. Anything else is a `TypeError`: encode it yourself and pass `raw` |
 | `multipart` | A `multipart/form-data` form: strings, numbers, bool and `File(...)`; a list repeats the part |
 | `raw` | Ready body bytes, for example broken JSON; the type is set by `content_type` |
-| `content_type` | Format of `body`/`raw`: with it a dict is sent as `application/x-www-form-urlencoded`, anything else as text |
+| `content_type` | Type of `body`/`raw`, sent as `Content-Type`. The same type in `headers` has the same effect; different types in both are a `ValueError` |
 | `headers` | Extra headers. An explicit `Authorization` replaces the account's authorization and disables refresh |
 | `validate` | `True`/`False`; `None` means as set on the client |
 | `session` | A snapshot from `client.accounts.session("alice")` instead of `as_user`; it is not updated |

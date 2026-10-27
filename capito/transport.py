@@ -162,8 +162,18 @@ def multipart_part(boundary, name, value):
     return f'--{boundary}\r\n{head}\r\n\r\n'.encode() + content + b"\r\n"
 
 
+def media_type(content_type):
+    """The type without parameters: 'application/json; charset=utf-8' -> 'application/json'."""
+    return content_type.split(';', 1)[0].strip().lower()
+
+
 def encode_body(*, body=None, multipart=None, raw=None, content_type=None):
-    """Encode exactly one body kind; returns (bytes or None, media type or None)."""
+    """Encode exactly one body kind; returns (bytes or None, media type or None).
+
+    body follows the type: JSON for none, application/json and */*+json; a dict as a form for
+    application/x-www-form-urlencoded; a str as UTF-8 text for any other type. Anything else is an error:
+    encode it yourself and pass raw.
+    """
     if multipart is not None:
         boundary = "capito-" + uuid.uuid4().hex
         parts = [multipart_part(boundary, name, item)
@@ -177,8 +187,12 @@ def encode_body(*, body=None, multipart=None, raw=None, content_type=None):
         return None, content_type
     if isinstance(body, bytes):
         return body, content_type or "application/octet-stream"
-    if content_type and content_type != "application/json":
-        if content_type == "application/x-www-form-urlencoded" and isinstance(body, dict):
-            return urlencode(body, doseq=True).encode(), content_type
-        return str(body).encode(), content_type
-    return json.dumps(body, ensure_ascii=False, allow_nan=False).encode(), "application/json"
+    media = media_type(content_type) if content_type else "application/json"
+    if media == "application/json" or media.endswith("+json"):
+        return json.dumps(body, ensure_ascii=False, allow_nan=False).encode(), content_type or "application/json"
+    if media == "application/x-www-form-urlencoded" and isinstance(body, dict):
+        return urlencode(body, doseq=True).encode(), content_type
+    if isinstance(body, str):
+        return body.encode(), content_type
+    raise TypeError(f"body for {content_type}: pass text as str, a dict for a form, "
+                    "or encode it yourself and pass raw=; JSON types encode any body")

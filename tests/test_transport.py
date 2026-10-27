@@ -215,3 +215,18 @@ def test_proxy_variables_of_the_environment_are_ignored(loopback_config, server,
     monkeypatch.delenv('no_proxy', raising=False)
     response = HttpxTransport(loopback_config).send(Request('GET', url + '/binary', {}))
     assert response.status == 200
+
+
+@pytest.mark.parametrize('media,expected', [
+    ('application/json; charset=utf-8', b'{"id": [1, 2]}'),
+    ('Application/Problem+JSON', b'{"id": [1, 2]}'),
+    ('application/x-www-form-urlencoded; charset=utf-8', b'id=1&id=2'),
+])
+def test_the_body_encoding_follows_the_type_without_parameters_and_keeps_the_type(media, expected):
+    assert encode_body(body={'id': [1, 2]}, content_type=media) == (expected, media)
+
+
+@pytest.mark.parametrize('body,media', [({'id': 1}, 'text/plain'), ([1], 'application/x-www-form-urlencoded'), (1, 'text/plain')])
+def test_a_body_a_text_type_cannot_hold_is_an_error(body, media):
+    with pytest.raises(TypeError, match='raw='):
+        encode_body(body=body, content_type=media)

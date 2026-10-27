@@ -1,4 +1,5 @@
 """Adapters to openapi-core; no endpoint-specific validation or schema rewriting."""
+import json
 import re
 from types import SimpleNamespace
 from urllib.parse import urlsplit, parse_qsl, urljoin
@@ -6,6 +7,8 @@ from http.cookies import SimpleCookie
 from jsonschema.validators import extend
 from openapi_core import OpenAPI, Config, V31RequestValidator, V31ResponseValidator
 from openapi_core.datatypes import RequestParameters
+from openapi_core.deserializing.exceptions import DeserializeError
+from openapi_core.deserializing.media_types.exceptions import MediaTypeDeserializeError
 from openapi_core.templating.security.exceptions import SecurityNotFound
 from openapi_core.validation.request.exceptions import MissingParameterError, ParameterValidationError, SecurityValidationError
 from openapi_core.validation.schemas.factories import DialectSchemaValidatorsFactory
@@ -72,9 +75,18 @@ def causes(error):
         error = error.__cause__
 
 
+def undecodable(error):
+    """Why a body or value could not be decoded, without the value: openapi-core puts the whole body into its message."""
+    if isinstance(error, MediaTypeDeserializeError):
+        reason = error.__context__  # raised without `from`: the parser's own error is the context
+        position = f': {reason.msg} at line {reason.lineno} column {reason.colno}' if isinstance(reason, json.JSONDecodeError) else ''
+        return f'Not valid {error.mimetype}{position}'
+    return type(error).__name__
+
+
 def error_details(error):
-    # Library exception strings can embed an entire image or response. Keep useful
-    # schema paths/rules without duplicating payloads in the validation report.
+    # Library exception strings can embed an entire image or response, and with it secrets. Keep useful
+    # schema paths/rules; values of bodies and parameters never get into the validation report.
     found = {'type': type(error).__name__}
     if isinstance(error, ParameterValidationError):
         found['in'] = error.location
@@ -93,6 +105,8 @@ def error_details(error):
                 if (found_issue := issue(e)) not in issues:
                     issues.append(found_issue)
             return found | {'issues': issues}
+        if isinstance(cause, DeserializeError):
+            return found | {'message': undecodable(cause)}
     return found | {'message': str(error)[:500]}
 
 

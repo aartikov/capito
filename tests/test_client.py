@@ -169,3 +169,19 @@ def test_print_client_shows_configuration_contracts_and_limits(project, monkeypa
     assert 'view: result depth=all items=all width=all lines=all' in before
     client.operations()
     assert 'sha256 ' in str(client) and 'version 1' in str(client)
+
+
+@pytest.mark.parametrize('media', ['application/json; charset=utf-8', 'application/x-www-form-urlencoded'])
+def test_the_type_in_content_type_or_in_headers_sends_the_same_request(make_client, requests, media):
+    c = make_client(replies=[(200, {'id': 1})] * 2)
+    c.call('POST', '/things', body={'id': 1}, content_type=media)
+    c.call('POST', '/things', body={'id': 1}, headers={'content-type': media})
+    first, second = requests()
+    assert first.content == second.content and first.headers['content-type'] == second.headers['content-type'] == media
+    assert first.content == (b'{"id": 1}' if 'json' in media else b'id=1')
+
+
+def test_content_type_and_a_different_content_type_header_are_an_error(make_client):
+    c = make_client()
+    with pytest.raises(ValueError, match='disagree'):
+        c.call('POST', '/things', body='text', content_type='text/plain', headers={'Content-Type': 'application/json'})
