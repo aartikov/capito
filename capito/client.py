@@ -1,7 +1,9 @@
 """The client. A project subclasses capito.Client and declares its parts as class attributes."""
+import codecs
 from copy import deepcopy
 from importlib import import_module
 import json
+import re
 import time
 
 from .accounts import Session
@@ -40,21 +42,32 @@ def describe_multipart(multipart):
             for k, value in multipart.items()}
 
 
+def charset(content_type):
+    """The charset a Content-Type names, if Python knows it; UTF-8 otherwise."""
+    match = re.search(r';\s*charset\s*=\s*"?([^";\s]+)', content_type, re.I)
+    try:
+        return codecs.lookup(match[1]).name if match else 'utf-8'
+    except LookupError:
+        return 'utf-8'
+
+
 def decode(response, result):
     """Put the parsed response body into result; a broken JSON body is an error, not an exception."""
     if not response.content:
         return
-    media = media_type(first(response.headers.get('content-type')) or '')
+    content_type = first(response.headers.get('content-type')) or ''
+    media, encoding = media_type(content_type), charset(content_type)
+    text = lambda: response.content.decode(encoding, errors='replace')
     # One JSON document is read only from JSON types, the ones call() encodes JSON for. JSON lines
     # (application/x-ndjson, jsonl, json-seq) are many documents: they stay text, like any text type.
     if media in ('application/json', 'text/json') or media.endswith('+json'):
-        try:
-            result.body = json.loads(response.content)
+        try:  # JSON is UTF-8 by its standard; a declared charset is still honoured, as servers send others
+            result.body = json.loads(response.content if encoding == 'utf-8' else response.content.decode(encoding))
         except (ValueError, UnicodeDecodeError):
-            result.body = response.content.decode(errors='replace')
+            result.body = text()
             result.errors.append('Invalid JSON response')
     elif media.startswith('text/') or 'json' in media:
-        result.body = response.content.decode(errors='replace')
+        result.body = text()
     else:
         result.body = response.content
 

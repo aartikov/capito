@@ -76,6 +76,11 @@ def test_invalid_call_usage_never_sends_request(tmp_path, options, exception, ma
     ('application/jsonl', b'{"a": 1}\n', True, '{"a": 1}\n'),
     ('application/json-seq', b'\x1e{"a": 1}\n', True, '\x1e{"a": 1}\n'),
     ('application/octet-stream', b'\x00\x01', True, b'\x00\x01'),
+    ('text/plain; charset=windows-1251', 'Привет'.encode('cp1251'), True, 'Привет'),
+    ('text/html; Charset="KOI8-R"', 'Привет'.encode('koi8-r'), True, 'Привет'),
+    ('application/json; charset=windows-1251', '{"name": "Привет"}'.encode('cp1251'), True, {'name': 'Привет'}),
+    ('text/plain; charset=unknown-x', 'Привет'.encode(), True, 'Привет'),  # an unknown charset reads as UTF-8
+    ('text/plain', 'Привет'.encode(), True, 'Привет'),
 ])
 def test_response_decoding(tmp_path, content_type, content, success, body, make_client):
     c = make_client(schema(tmp_path), replies=[lambda r: httpx.Response(200, headers={'Content-Type': content_type}, content=content)])

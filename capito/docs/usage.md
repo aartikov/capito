@@ -226,7 +226,7 @@ r = client.call("POST", "/items/{itemId}/photos", path={"itemId": "item-1"}, as_
 | --- | --- |
 | `success` | 2xx without transport or parsing errors. Confirms neither business meaning nor contract conformance |
 | `status` | HTTP code; `0` if there was no response (timeout, connection failure); `None` for a local outcome without a request |
-| `body` | JSON for JSON types (`application/json`, `…+json`), text for `text/…` and JSON lines (`application/x-ndjson`), otherwise `bytes`; `None` without a body. Save a binary response yourself: `Path(...).write_bytes(r.body)` |
+| `body` | JSON for JSON types (`application/json`, `…+json`), text for `text/…` and JSON lines (`application/x-ndjson`), otherwise `bytes`; text and JSON are read in the `charset` of `Content-Type`, UTF-8 without it; `None` without a body. Save a binary response yourself: `Path(...).write_bytes(r.body)` |
 | `error` | On failure `{"code": …, "message": …}`, otherwise `None`. `code` comes from the project's error format as the API gives it (text or a number), `None` if it cannot be parsed; `message` is the server's text or the first local reason |
 | `errors` | All failure reasons as strings |
 | `validation` | Contract check results (section 8) or `None` if checks are off |
