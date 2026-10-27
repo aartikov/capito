@@ -70,6 +70,12 @@ def test_invalid_call_usage_never_sends_request(tmp_path, options, exception, ma
     ('application/json', b'{invalid', False, '{invalid'),
     ('text/plain', b'text', True, 'text'),
     ('application/json', b'', True, None),
+    ('application/problem+json', b'{"title": "x"}', True, {'title': 'x'}),
+    ('Application/JSON; charset=utf-8', b'[1]', True, [1]),
+    ('application/x-ndjson', b'{"a": 1}\n{"a": 2}\n', True, '{"a": 1}\n{"a": 2}\n'),  # many documents: text
+    ('application/jsonl', b'{"a": 1}\n', True, '{"a": 1}\n'),
+    ('application/json-seq', b'\x1e{"a": 1}\n', True, '\x1e{"a": 1}\n'),
+    ('application/octet-stream', b'\x00\x01', True, b'\x00\x01'),
 ])
 def test_response_decoding(tmp_path, content_type, content, success, body, make_client):
     c = make_client(schema(tmp_path), replies=[lambda r: httpx.Response(200, headers={'Content-Type': content_type}, content=content)])

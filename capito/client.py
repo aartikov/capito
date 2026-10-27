@@ -12,7 +12,7 @@ from .config import Config
 from .core import Core, CoreRuntime
 from .files import File
 from .results import error_from, strings, utcnow
-from .transport import HttpxTransport, Request, build_url, encode_body, first, scalar
+from .transport import HttpxTransport, Request, build_url, encode_body, first, media_type, scalar
 
 
 def check_arguments(as_user, session, body, multipart, raw, content_type):
@@ -44,14 +44,16 @@ def decode(response, result):
     """Put the parsed response body into result; a broken JSON body is an error, not an exception."""
     if not response.content:
         return
-    media = (first(response.headers.get('content-type')) or '').lower()
-    if 'json' in media:
+    media = media_type(first(response.headers.get('content-type')) or '')
+    # One JSON document is read only from JSON types, the ones call() encodes JSON for. JSON lines
+    # (application/x-ndjson, jsonl, json-seq) are many documents: they stay text, like any text type.
+    if media in ('application/json', 'text/json') or media.endswith('+json'):
         try:
             result.body = json.loads(response.content)
         except (ValueError, UnicodeDecodeError):
             result.body = response.content.decode(errors='replace')
             result.errors.append('Invalid JSON response')
-    elif media.startswith('text/'):
+    elif media.startswith('text/') or 'json' in media:
         result.body = response.content.decode(errors='replace')
     else:
         result.body = response.content
