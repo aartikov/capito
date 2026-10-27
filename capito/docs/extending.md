@@ -294,7 +294,7 @@ def client(tmp_path):
     return Client(config(tmp_path, CONTRACT, view=VIEW), validate=True)
 ```
 
-One test checks the project's help: help builds for every command. capito reports declaration errors itself: when the client is created (an undescribed argument, a typo in `parameters`, a compound command without `steps`/`data`) and when help is first built (an `api=` or `schema_from` reference to something missing from the contract):
+One test checks the project's help: help builds for every command. capito reports declaration errors itself: when the client is created (an undescribed argument, a typo in `parameters`, an `api=` or `schema_from` reference not of the form `api:GET /items/{itemId}`, a compound command without `steps`/`data`) and when help is first built (an `api=` or `schema_from` reference to something missing from the contract):
 
 ```python
 def test_help_builds_for_every_command_and_operation(client):

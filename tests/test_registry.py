@@ -47,6 +47,36 @@ def test_command_declaration_errors_surface_when_the_client_is_created(make_clie
             make_client(client_class=declared(method=method))
 
 
+@pytest.mark.parametrize('reference', ['api:GET/things', 'GET /things', 'api:GET things', 'api:GET  /things'])
+def test_a_malformed_operation_reference_is_a_declaration_error(make_client, reference):
+    from capito.registry import command, path_param
+
+    @command('Typo in api', api=(reference,))
+    def listed(self, *, as_user=None, validate=None):
+        pass
+
+    @command('Typo in schema_from', parameters={'thing_id': path_param(reference, 'thingId', 'Thing')})
+    def single(self, thing_id, *, as_user=None, validate=None):
+        pass
+
+    for method in (listed, single):
+        with pytest.raises(TypeError, match=f"{re.escape(repr(reference))} must look like 'api:GET /items/{{itemId}}'"):
+            make_client(client_class=declared(method=method))
+
+
+def test_api_and_schema_from_take_their_own_shapes(make_client):
+    from capito.registry import command
+    with pytest.raises(TypeError, match=r"api= is a tuple of operations: api=\('api:GET /things',\)"):
+        command('One operation as text', api='api:GET /things')
+
+    @command('A location typo', parameters={'thing': {'schema_from': ('api:POST /things', 'bdy')}})
+    def located(self, thing, *, as_user=None, validate=None):
+        pass
+
+    with pytest.raises(TypeError, match='takes the body, the query or a named path parameter'):
+        make_client(client_class=declared(method=located))
+
+
 def test_broken_contract_references_fail_help_but_not_calls(make_client):
     from capito.registry import command, path_param
 

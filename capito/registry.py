@@ -2,6 +2,7 @@
 import difflib
 import inspect
 import json
+import re
 
 from .files import File
 from .transport import media_type, scalar as text_value
@@ -10,6 +11,8 @@ from .view import ALL, UNSET, ViewList, cap, project, scalar
 
 RESULT_TYPES = {'http': 'Result', 'compound': 'CompoundResult', 'account': 'Account',
                 'accounts': 'list[Account]', 'session': 'Session', 'text': 'str', 'none': 'None'}
+# An operation of the help contract as commands name it: api:<METHOD> <route>.
+API_REFERENCE = re.compile(r'api:[A-Za-z]+ /\S*')
 # Their meaning is the same for every command and is documented once in docs/usage.md.
 STANDARD_ARGUMENTS = ('as_user', 'validate')
 
@@ -29,6 +32,8 @@ def command(summary, *, api=(), effects='', example='', parameters=None, result=
     """
     if result not in RESULT_TYPES:
         raise ValueError(f'Unknown result kind: {result}')
+    if isinstance(api, str):
+        raise TypeError(f"api= is a tuple of operations: api=({api!r},)")
     def decorate(fn):
         fn.__command__ = dict(summary=summary, api=list(api), effects=effects, example=example,
                               parameters=parameters or {}, result=result, steps=list(steps),
@@ -104,6 +109,13 @@ def check_declaration(identifier, fn, meta):
             raise TypeError(f'{identifier}: describe argument {name!r} in @command(parameters=...)')
     if meta['result'] == 'compound' and not (meta['steps'] and meta['data']):
         raise TypeError(f'{identifier}: a compound command declares steps and data')
+    sources = [doc['schema_from'] for doc in meta['parameters'].values() if 'schema_from' in doc]
+    for reference in [*meta['api'], *(source[0] for source in sources)]:
+        if not isinstance(reference, str) or not API_REFERENCE.fullmatch(reference):
+            raise TypeError(f"{identifier}: {reference!r} must look like 'api:GET /items/{{itemId}}'")
+    for source in sources:
+        if source[1] not in ('path', 'query', 'body') or (source[1] == 'path' and len(source) < 3):
+            raise TypeError(f'{identifier}: schema_from {source!r} takes the body, the query or a named path parameter')
 
 
 def one_line(text):
