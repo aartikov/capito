@@ -1,8 +1,10 @@
 """OpenAPI discovery and serialization; schema validation belongs to openapi-core."""
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 import hashlib
 import json
+import math
 import re
 import threading
 
@@ -11,9 +13,11 @@ import yaml
 from .view import keys_preview, remaining
 
 METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
+# Formats the validator checks get a value that passes it; the IP addresses are reserved for documentation.
 FORMAT_EXAMPLES = {"uuid": "00000000-0000-4000-8000-000000000001", "date": "1995-01-01",
-                   "date-time": "2026-10-14T10:00:00Z", "uri": "https://example.com/test",
-                   "email": "test@example.com", "binary": "@image.png"}
+                   "date-time": "2026-10-14T10:00:00Z", "time": "10:00:00", "uri": "https://example.com/test",
+                   "email": "test@example.com", "idn-email": "test@example.com", "ipv4": "192.0.2.1",
+                   "ipv6": "2001:db8::1", "byte": "ZXhhbXBsZQ==", "binary": "@image.png"}
 # A name past the depth limit: resolved by finish() into '' when the block defines it, else ' ↓K'.
 UNDEFINED = re.compile('\x00([^\x00]+)\x00')
 
@@ -259,7 +263,13 @@ class Contract:
         if typ == "array":
             count = schema.get("minItems", 1)
             count = count if "maxItems" not in schema else min(count, schema["maxItems"])
-            return [self.example(schema.get("items", {}), depth + 1)] * count
+            first = self.example(schema.get("items", {}), depth + 1)
+            if schema.get("uniqueItems"):
+                items, values = self.deref(schema.get("items", {})), [first]
+                while len(values) < count:
+                    values.append(distinct(items, values))
+                return values
+            return [first] * count
         if typ in ("integer", "number"):
             return number_example(schema, typ)
         if typ == "boolean":
@@ -288,9 +298,56 @@ def number_example(schema, typ):
     if high is not None and value > high:
         value = high
     if schema.get("multipleOf"):
-        multiple = schema["multipleOf"]
-        value = -(-value // multiple) * multiple
+        value = multiple_from(value, schema["multipleOf"], low, high)
     return int(value) if typ == "integer" else value
+
+
+def multiple_from(value, multiple, low=None, high=None):
+    """The multiple of `multiple` nearest to value within the bounds, upwards first, that the validator accepts.
+
+    The validator divides in floating point: 0.3 / 0.1 is not whole, so 0.3 fails multipleOf 0.1 and 0.5 passes.
+    A multiple is rounded to the digits of the step and kept if the division is whole; none within reach keeps value.
+    """
+    if isinstance(multiple, int) and isinstance(value, int):
+        up = -(-value // multiple) * multiple
+        return up if high is None or up <= high else value // multiple * multiple
+    digits = max(0, -Decimal(str(multiple)).as_tuple().exponent)
+    start = math.ceil(round(value / multiple, 9))
+    for steps in (range(start, start + 100), range(start - 1, start - 101, -1)):
+        for k in steps:
+            candidate = round(k * multiple, digits)
+            if (high is not None and candidate > high) or (low is not None and candidate < low):
+                break
+            if (candidate / multiple).is_integer():
+                return candidate
+    return value
+
+
+def distinct(schema, taken):
+    """The next element of a uniqueItems example, unlike those taken; the first again when none can be built."""
+    first, index = taken[0], len(taken)
+    if "enum" in schema:
+        return next((v for v in schema["enum"] if v not in taken), first)
+    if isinstance(first, bool) or not isinstance(first, (int, float, str)) or "pattern" in schema:
+        return first
+    if isinstance(first, (int, float)):
+        step, low, high = schema.get("multipleOf", 1), schema.get("minimum"), schema.get("maximum")
+        for k in [*range(1, 100), *range(-1, -100, -1)]:  # upwards, then downwards from a value at the maximum
+            value = first + k * step if isinstance(step, int) else multiple_from(first + k * step, step, low, high)
+            if (high is None or value <= high) and (low is None or value >= low) and value not in taken:
+                return value
+        return first
+    suffix = str(index + 1)
+    if schema.get("format") == "uuid":
+        return first[:-len(suffix)] + suffix
+    if schema.get("format") in ("email", "idn-email"):
+        return f"test{suffix}@example.com"
+    if "format" in schema:
+        return first
+    limit = schema.get("maxLength")
+    if limit is None or len(first) + len(suffix) <= limit:
+        return first + suffix
+    return first[:limit - len(suffix)] + suffix if limit >= len(suffix) else first
 
 
 class ContractSource:

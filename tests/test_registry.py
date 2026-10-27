@@ -427,6 +427,21 @@ def varied_contract(tmp_path):
         '/text': {'post': body('text/plain', {'schema': {'type': 'string'}})},
         '/xml': {'post': body('application/xml', {'schema': obj({'text': {'type': 'string'}})})},
         '/pattern': {'post': body('application/json', {'schema': obj({'code': {'type': 'string', 'pattern': '^[A-Z]{3}$'}})})},
+        '/formats': {'post': body('application/json', {'schema': obj({
+            'ip': {'type': 'string', 'format': 'ipv4'}, 'ip6': {'type': 'string', 'format': 'ipv6'},
+            'blob': {'type': 'string', 'format': 'byte'}, 'at': {'type': 'string', 'format': 'time'},
+            'mail': {'type': 'string', 'format': 'idn-email'}})})},
+        '/steps': {'post': body('application/json', {'schema': obj({
+            'price': {'type': 'number', 'minimum': 0.3, 'multipleOf': 0.1},
+            'latitude': {'type': 'number', 'minimum': -90, 'maximum': 90, 'multipleOf': 0.0001},
+            'ratio': {'type': 'number', 'exclusiveMinimum': 0, 'maximum': 1, 'multipleOf': 0.05}})})},
+        '/unique': {'post': body('application/json', {'schema': obj({
+            'tags': {'type': 'array', 'minItems': 3, 'uniqueItems': True, 'items': {'type': 'string', 'maxLength': 7}},
+            'ids': {'type': 'array', 'minItems': 2, 'uniqueItems': True, 'items': {'type': 'string', 'format': 'uuid'}},
+            'mails': {'type': 'array', 'minItems': 2, 'uniqueItems': True, 'items': {'type': 'string', 'format': 'email'}},
+            'kinds': {'type': 'array', 'minItems': 2, 'uniqueItems': True, 'items': {'enum': ['a', 'b', 'c']}},
+            'shares': {'type': 'array', 'minItems': 3, 'uniqueItems': True,
+                       'items': {'type': 'number', 'maximum': 0.6, 'multipleOf': 0.1}}})})},
     }
     path.write_text(json.dumps(data))
     return path
