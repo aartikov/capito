@@ -111,7 +111,7 @@ Arguments of `@command(summary, ...)`:
 | Argument | Meaning |
 | --- | --- |
 | `api` | Contract operations the command calls: `('api:GET /items/{itemId}',)`. For a single command they give the response body in help and the `→ command:…` mark in the catalog |
-| `parameters` | Argument descriptions: `path_param(api, name, text)`, `body_param(api, text)`, `query_param(api)` take the schema from the contract; custom ones are `{'type', 'description', 'example', 'include_in_example'}`; `account_arguments(...)` for account arguments |
+| `parameters` | Argument descriptions: `path_param(api, name, text)`, `body_param(api, text)`, `query_param(api)` take the schema from the contract, and so does `{'schema_from': (api, 'header', name)}` for a header or a cookie (`'cookie'`); custom ones are `{'type', 'description', 'example', 'include_in_example'}`; `account_arguments(...)` for account arguments |
 | `result` | What it returns: `http` (default, `Result`), `compound`, `account`, `accounts`, `session`, `text`, `none` |
 | `effects`, `prerequisites`, `notes` | Consequences, what to prepare, notes; only what is specific to the command |
 | `steps`, `data` | For `compound`: steps as `'name: what it does'` and `data` fields with descriptions |

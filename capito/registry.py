@@ -13,6 +13,8 @@ RESULT_TYPES = {'http': 'Result', 'compound': 'CompoundResult', 'account': 'Acco
                 'accounts': 'list[Account]', 'session': 'Session', 'text': 'str', 'none': 'None'}
 # An operation of the help contract as commands name it: api:<METHOD> <route>.
 API_REFERENCE = re.compile(r'api:[A-Za-z]+ /\S*')
+# Parameter locations a schema_from reference names one parameter of: (api, location, name).
+NAMED_LOCATIONS = ('path', 'header', 'cookie')
 # Header parameters OpenAPI says to ignore, as content, responses and security set these headers: help shows
 # them as the contract has them, examples leave them out; a required Authorization still marks that sign-in is needed.
 IGNORED_HEADERS = {'accept', 'content-type', 'authorization'}
@@ -117,8 +119,8 @@ def check_declaration(identifier, fn, meta):
         if not isinstance(reference, str) or not API_REFERENCE.fullmatch(reference):
             raise TypeError(f"{identifier}: {reference!r} must look like 'api:GET /items/{{itemId}}'")
     for source in sources:
-        if source[1] not in ('path', 'query', 'body') or (source[1] == 'path' and len(source) < 3):
-            raise TypeError(f'{identifier}: schema_from {source!r} takes the body, the query or a named path parameter')
+        if source[1] not in ('path', 'query', 'body', *NAMED_LOCATIONS) or (source[1] in NAMED_LOCATIONS and len(source) < 3):
+            raise TypeError(f'{identifier}: schema_from {source!r} takes the body, the query or a named path, header or cookie parameter')
 
 
 def one_line(text):
@@ -263,8 +265,8 @@ class Registry:
         op = self.operation(identifier)
         if op is None:
             return f'{identifier} is not in the help contract'
-        if location == 'path' and not any(p['in'] == 'path' and p['name'] == name[0] for p in op.parameters):
-            return f'{identifier} has no path parameter {name[0]!r}'
+        if location in NAMED_LOCATIONS and not any(p['in'] == location and p['name'] == name[0] for p in op.parameters):
+            return f'{identifier} has no {location} parameter {name[0]!r}'
         if location == 'query' and not any(p['in'] == 'query' for p in op.parameters):
             return f'{identifier} has no query parameters'
         if location == 'body':

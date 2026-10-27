@@ -73,8 +73,38 @@ def test_api_and_schema_from_take_their_own_shapes(make_client):
     def located(self, thing, *, as_user=None, validate=None):
         pass
 
-    with pytest.raises(TypeError, match='takes the body, the query or a named path parameter'):
-        make_client(client_class=declared(method=located))
+    @command('A header without its name', parameters={'platform': {'schema_from': ('api:GET /things', 'header')}})
+    def unnamed(self, platform, *, as_user=None, validate=None):
+        pass
+
+    for method in (located, unnamed):
+        with pytest.raises(TypeError, match='takes the body, the query or a named path, header or cookie parameter'):
+            make_client(client_class=declared(method=method))
+
+
+def test_an_argument_takes_its_schema_from_a_header_or_a_cookie(tmp_path, make_client):
+    path = schema(tmp_path)
+    data = json.loads(path.read_text())
+    data['paths']['/things']['get']['parameters'] = [
+        {'name': 'X-Platform', 'in': 'header', 'required': True, 'schema': {'enum': ['ios', 'android']}},
+        {'name': 'theme', 'in': 'cookie', 'schema': {'enum': ['dark', 'light']}}]
+    path.write_text(json.dumps(data))
+
+    @command('Things for a platform', api=('api:GET /things',),
+             parameters={'platform': {'schema_from': ('api:GET /things', 'header', 'X-Platform')},
+                         'theme': {'schema_from': ('api:GET /things', 'cookie', 'theme')}})
+    def listed(self, platform, theme, *, as_user=None, validate=None):
+        pass
+
+    card = make_client(path, client_class=declared(listed=listed)).describe('command:items.listed')
+    assert card.example == "client.items.listed(platform='ios', theme='dark')"
+
+    @command('Wrong header', parameters={'platform': {'schema_from': ('api:GET /things', 'header', 'X-Device')}})
+    def wrong(self, platform, *, as_user=None, validate=None):
+        pass
+
+    with pytest.raises(ValueError, match="argument platform: api:GET /things has no header parameter 'X-Device'"):
+        make_client(path, client_class=declared(wrong=wrong)).operations()
 
 
 def test_broken_contract_references_fail_help_but_not_calls(make_client):
