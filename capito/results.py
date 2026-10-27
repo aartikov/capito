@@ -280,9 +280,9 @@ class Result(Viewable):
 
 
 def error_text(error, errors):
-    if error and error.get('code'):
+    if error and error.get('code') not in (None, ''):  # a code is any value of the API's format: 'Forbidden', 404, 0
         message = error.get('message')
-        return error['code'] + (f': {views.scalar(message, 80)}' if message else '')
+        return views.scalar(error['code'], 80) + (f': {views.scalar(message, 80)}' if message else '')
     if error and error.get('message'):
         return views.scalar(error['message'], 80)
     return views.scalar(errors[0], 80) if errors else 'failed'

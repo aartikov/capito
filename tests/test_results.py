@@ -157,6 +157,23 @@ def test_project_error_parser_fills_error(make_client):
     assert ok.error is None
 
 
+@pytest.mark.parametrize('body, error, line', [
+    ({'code': 404, 'text': 'Pet not found'}, {'code': 404, 'message': 'Pet not found'}, '404: Pet not found'),
+    ({'code': 0}, {'code': 0, 'message': 'Unexpected HTTP status: 404'}, '0: Unexpected HTTP status: 404'),
+])
+def test_an_error_code_that_is_not_text_keeps_its_value_and_is_shown(make_client, body, error, line):
+    class Numbered(Client):
+        core = Core(error_parser=lambda body: (body.get('code'), body.get('text')))
+    c = make_client(replies=[(404, body), (404, body)], client_class=Numbered)
+    result = c.call('GET', '/things')
+    assert result.error == error  # logic compares the API's own value: error['code'] == 404
+    assert line in str(result)
+    combined = c.core.compound('things.get')
+    from capito.results import add_step
+    add_step(combined, 'get', c.call('GET', '/things'))
+    assert f'get: 404 {line}' in str(combined)
+
+
 def test_compound_result_header_and_account_line(make_client):
     c = make_client(replies=[(201, {'id': 1}), (403, {'id': 2})], view=LIMITED_VIEW, client_class=AccountsClient)
     combined = c.core.compound('things.pair')
